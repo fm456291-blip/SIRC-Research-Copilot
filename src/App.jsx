@@ -545,7 +545,7 @@ The Assistant Managers listed in the SIRC staff directory are:
     }
 
     const response = await fetch(
-      "http://localhost:5000/api/chat",
+      "https://sirc-research-copilot-api.onrender.com/api/chat",
       {
         method: "POST",
         headers: {
@@ -593,7 +593,7 @@ The Assistant Managers listed in the SIRC staff directory are:
     }
 
     const response = await fetch(
-      "http://localhost:5000/api/analyze-pdf",
+      "https://sirc-research-copilot-api.onrender.com/api/analyze-pdf",
       {
         method: "POST",
         body: formData,
