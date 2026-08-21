@@ -12,6 +12,14 @@ function App() {
   const [isListening, setIsListening] = useState(false);
 
   const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
+useEffect(() => {
+  messagesEndRef.current?.scrollIntoView({
+    behavior: "smooth",
+    block: "end",
+  });
+}, [messages, loading]);
 
   // =====================================================
   // SIRC BUILT-IN KNOWLEDGE
@@ -1244,6 +1252,7 @@ const handleVoiceInput = () => {
               </div>
 
             )}
+            <div ref={messagesEndRef} />
 
           </section>
 
