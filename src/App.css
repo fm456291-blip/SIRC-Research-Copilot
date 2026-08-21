@@ -2075,3 +2075,160 @@ textarea::placeholder {
     gap: 8px;
   }
 }
+/* =====================================================
+   MARKDOWN / AI RESPONSE FORMATTING
+   ===================================================== */
+
+.markdown-content {
+  width: 100%;
+  line-height: 1.7;
+  font-size: 15px;
+  overflow-x: auto;
+}
+
+/* Headings */
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin-top: 22px;
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.markdown-content h1 {
+  font-size: 24px;
+}
+
+.markdown-content h2 {
+  font-size: 20px;
+}
+
+.markdown-content h3 {
+  font-size: 17px;
+}
+
+/* Paragraphs */
+
+.markdown-content p {
+  margin: 0 0 14px;
+}
+
+/* Lists */
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 10px 0 16px;
+  padding-left: 25px;
+}
+
+.markdown-content li {
+  margin-bottom: 6px;
+}
+
+/* Bold */
+
+.markdown-content strong {
+  font-weight: 700;
+}
+
+/* Links */
+
+.markdown-content a {
+  text-decoration: underline;
+}
+
+/* =====================================================
+   TABLES
+   ===================================================== */
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+  font-size: 14px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.markdown-content thead {
+  font-weight: 700;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 11px 13px;
+  border: 1px solid rgba(100, 100, 120, 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.markdown-content tr:nth-child(even) td {
+  background: rgba(100, 100, 120, 0.04);
+}
+
+/* =====================================================
+   CODE
+   ===================================================== */
+
+.markdown-content code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.markdown-content pre {
+  padding: 15px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 15px 0;
+}
+
+.markdown-content pre code {
+  padding: 0;
+  background: transparent;
+}
+
+/* =====================================================
+   BLOCKQUOTE
+   ===================================================== */
+
+.markdown-content blockquote {
+  margin: 15px 0;
+  padding: 10px 15px;
+  border-left: 4px solid currentColor;
+  opacity: 0.9;
+}
+
+/* =====================================================
+   HORIZONTAL LINE
+   ===================================================== */
+
+.markdown-content hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid rgba(100, 100, 120, 0.2);
+}
+
+/* =====================================================
+   MOBILE TABLE
+   ===================================================== */
+
+@media (max-width: 700px) {
+
+  .markdown-content table {
+    font-size: 13px;
+  }
+
+  .markdown-content th,
+  .markdown-content td {
+    padding: 8px 9px;
+  }
+
+}
