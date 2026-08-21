@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./App.css";
 
 function App() {
@@ -885,38 +886,71 @@ const handleVoiceInput = () => {
   recognition.start();
 };
 
-  // =====================================================
-  // SIDEBAR RESEARCH TOOLS
-  // =====================================================
+ // =====================================================
+// SIDEBAR RESEARCH TOOLS
+// DIRECT AI GENERATION
+// =====================================================
 
-  const handleSidebarTool = (tool) => {
-    const prompts = {
-      topic:
-        "Help me develop a strong academic research topic. Suggest several research topics, explain why each topic is important, and identify possible research variables.",
+const handleSidebarTool = async (tool) => {
+  if (loading) return;
 
-      questions:
-        "Help me develop academically meaningful research questions for my research topic. Provide clear and researchable questions.",
+  const prompts = {
+    topic:
+      "Help me develop a strong academic research topic. Suggest several research topics, explain why each topic is important, and identify possible research variables.",
 
-      keywords:
-        "Generate important academic keywords, synonyms, related terms, and alternative search terms for my research topic.",
+    questions:
+      "Help me develop academically meaningful research questions for my research topic. Provide clear and researchable questions.",
 
-      boolean:
-        "Create effective Boolean search strings using AND, OR, and NOT for my research topic. Make them suitable for academic databases.",
+    keywords:
+      "Generate important academic keywords, synonyms, related terms, and alternative search terms for my research topic.",
 
-      database:
-        "Recommend suitable academic research databases for my research topic and explain what type of information I can find in each database.",
+    boolean:
+      "Create effective Boolean search strings using AND, OR, and NOT for my research topic. Make them suitable for academic databases.",
 
-      citation:
-        "Help me with academic citation. Explain the appropriate citation style and provide examples of in-text citations and reference entries.",
-    };
+    database:
+      "Recommend suitable academic research databases for my research topic and explain what type of information I can find in each database.",
 
-    const selectedPrompt = prompts[tool];
-
-    if (!selectedPrompt) return;
-
-    setMessage(selectedPrompt);
+    citation:
+      "Help me with academic citation. Explain the appropriate citation style and provide examples of in-text citations and reference entries.",
   };
 
+  const selectedPrompt = prompts[tool];
+
+  if (!selectedPrompt) return;
+
+  setLoading(true);
+
+  try {
+    const answer = await sendNormalMessage(selectedPrompt);
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        type: "assistant",
+        text:
+          answer ||
+          "I could not generate a response.",
+      },
+    ]);
+  } catch (error) {
+    console.error(
+      "Sidebar Tool Error:",
+      error
+    );
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        type: "assistant",
+        text:
+          error.message ||
+          "I could not process this research tool request. Please try again.",
+      },
+    ]);
+  } finally {
+    setLoading(false);
+  }
+};
   // =====================================================
   // UI
   // =====================================================
@@ -1186,9 +1220,9 @@ const handleVoiceInput = () => {
 
                     <div className="markdown-content">
 
-                      <ReactMarkdown>
-                        {item.text}
-                      </ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+  {item.text}
+</ReactMarkdown>
 
                     </div>
 
