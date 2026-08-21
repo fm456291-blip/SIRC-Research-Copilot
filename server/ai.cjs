@@ -2,44 +2,54 @@
 // SIRC RESEARCH COPILOT
 // AI ROUTER
 // GROQ → GEMINI FALLBACK
+// PRODUCTION READY
 // =====================================================
 
 const Groq = require("groq-sdk");
 const { GoogleGenAI } = require("@google/genai");
 
-
 // =====================================================
-// GROQ
-// =====================================================
-
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
-
-
-// =====================================================
-// GEMINI
+// ENVIRONMENT VARIABLES
 // =====================================================
 
-const gemini = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // =====================================================
-// CHECK API KEYS
+// AI CLIENTS
 // =====================================================
+
+const groq = GROQ_API_KEY
+  ? new Groq({
+      apiKey: GROQ_API_KEY,
+    })
+  : null;
+
+const gemini = GEMINI_API_KEY
+  ? new GoogleGenAI({
+      apiKey: GEMINI_API_KEY,
+    })
+  : null;
+
+// =====================================================
+// STARTUP STATUS
+// =====================================================
+
+console.log("==========================================");
+console.log("SIRC AI ROUTER");
+console.log("==========================================");
 
 console.log(
-  "AI ROUTER - GROQ:",
-  process.env.GROQ_API_KEY ? "READY" : "MISSING"
+  "GROQ API KEY:",
+  GROQ_API_KEY ? "LOADED" : "MISSING"
 );
 
 console.log(
-  "AI ROUTER - GEMINI:",
-  process.env.GEMINI_API_KEY ? "READY" : "MISSING"
+  "GEMINI API KEY:",
+  GEMINI_API_KEY ? "LOADED" : "MISSING"
 );
 
+console.log("==========================================");
 
 // =====================================================
 // COMMON SYSTEM PROMPT
@@ -47,121 +57,171 @@ console.log(
 
 const SYSTEM_PROMPT = `
 You are SIRC Research Copilot,
-an academic research assistant.
+an academic research assistant developed for
+the Superior Information Resource Center (SIRC).
 
-Give natural, useful and detailed answers
-in clear academic language.
+Your purpose is to help students, faculty and
+researchers with academic research and information
+discovery.
+
+Answer naturally and clearly.
 
 For research-related questions:
 
-- Be accurate
-- Explain concepts clearly
-- Do not invent references
-- Do not invent statistics
-- Do not invent findings
-- Clearly indicate uncertainty when necessary
+- Be accurate and academically useful.
+- Explain concepts clearly.
+- Use headings and bullet points when helpful.
+- Do not invent references.
+- Do not invent statistics.
+- Do not invent research findings.
+- Do not present assumptions as facts.
+- Clearly mention uncertainty when information is unclear.
+- Keep answers relevant to the user's question.
+- Do not unnecessarily repeat the question.
 `;
 
+// =====================================================
+// TIMEOUT HELPER
+// =====================================================
+
+function withTimeout(promise, timeout = 60000) {
+  return Promise.race([
+    promise,
+
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `AI request timed out after ${timeout / 1000} seconds.`
+          )
+        );
+      }, timeout);
+    }),
+  ]);
+}
 
 // =====================================================
 // GROQ AI
 // =====================================================
 
 async function callGroq(message) {
-
+  console.log("==========================================");
   console.log("CALLING GROQ AI");
+  console.log("==========================================");
 
-  const response =
-    await groq.chat.completions.create({
-
-      model: "openai/gpt-oss-20b",
-
-      messages: [
-
-        {
-          role: "system",
-
-          content: SYSTEM_PROMPT
-        },
-
-        {
-          role: "user",
-
-          content: message
-        }
-
-      ],
-
-      temperature: 0.7,
-
-      max_tokens: 1500
-
-    });
-
-
-  const answer =
-    response.choices?.[0]?.message?.content;
-
-
-  if (!answer) {
-
+  if (!groq) {
     throw new Error(
-      "Groq returned an empty response."
+      "GROQ_API_KEY is not configured on the server."
     );
-
   }
 
+  if (!message || !message.trim()) {
+    throw new Error("Message is required.");
+  }
 
-  console.log("GROQ ANSWER CREATED");
+  try {
+    const response = await withTimeout(
+      groq.chat.completions.create({
+        model: "openai/gpt-oss-20b",
 
-  return answer;
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+
+          {
+            role: "user",
+            content: message.trim(),
+          },
+        ],
+
+        temperature: 0.7,
+        max_tokens: 1500,
+      })
+    );
+
+    const answer =
+      response?.choices?.[0]?.message?.content?.trim();
+
+    if (!answer) {
+      throw new Error(
+        "Groq returned an empty response."
+      );
+    }
+
+    console.log("GROQ ANSWER CREATED");
+
+    return answer;
+  } catch (error) {
+    console.error("GROQ ERROR:");
+    console.error(error?.message || error);
+
+    throw error;
+  }
 }
-
 
 // =====================================================
 // GEMINI AI
 // =====================================================
 
 async function callGemini(message) {
-
+  console.log("==========================================");
   console.log("CALLING GEMINI AI");
+  console.log("==========================================");
 
-  const response =
-    await gemini.models.generateContent({
+  if (!gemini) {
+    throw new Error(
+      "GEMINI_API_KEY is not configured on the server."
+    );
+  }
 
-      model: "gemini-3.6-flash",
+  if (!message || !message.trim()) {
+    throw new Error("Message is required.");
+  }
 
-      contents: `
+  try {
+    const response = await withTimeout(
+      gemini.models.generateContent({
+        model: "gemini-2.5-flash",
 
-${SYSTEM_PROMPT}
+        contents: [
+          {
+            role: "user",
+
+            parts: [
+              {
+                text: `${SYSTEM_PROMPT}
 
 User question:
 
-${message}
-
-`
-
-    });
-
-
-  const answer =
-    response.text;
-
-
-  if (!answer) {
-
-    throw new Error(
-      "Gemini returned an empty response."
+${message.trim()}`,
+              },
+            ],
+          },
+        ],
+      })
     );
 
+    const answer =
+      response?.text?.trim();
+
+    if (!answer) {
+      throw new Error(
+        "Gemini returned an empty response."
+      );
+    }
+
+    console.log("GEMINI ANSWER CREATED");
+
+    return answer;
+  } catch (error) {
+    console.error("GEMINI ERROR:");
+    console.error(error?.message || error);
+
+    throw error;
   }
-
-
-  console.log("GEMINI ANSWER CREATED");
-
-  return answer;
 }
-
 
 // =====================================================
 // MAIN AI FUNCTION
@@ -169,97 +229,98 @@ ${message}
 // =====================================================
 
 async function askAI(message) {
-
   if (!message || !message.trim()) {
-
-    throw new Error(
-      "Message is required."
-    );
-
+    throw new Error("Message is required.");
   }
 
+  const question = message.trim();
+
+  let groqError = null;
+  let geminiError = null;
 
   // ===================================================
   // GROQ FIRST
   // ===================================================
 
-  try {
+  if (groq) {
+    try {
+      const answer = await callGroq(question);
 
-    const answer =
-      await callGroq(message);
+      return {
+        answer,
+        source: "groq",
+      };
+    } catch (error) {
+      groqError = error;
 
-
-    return {
-
-      answer: answer,
-
-      source: "groq"
-
-    };
-
-  }
-
-  catch (groqError) {
+      console.error(
+        "GROQ FAILED — SWITCHING TO GEMINI"
+      );
+    }
+  } else {
+    groqError = new Error(
+      "GROQ_API_KEY is missing."
+    );
 
     console.error(
-      "GROQ FAILED:",
-      groqError.message
+      "GROQ unavailable because GROQ_API_KEY is missing."
     );
-
-    console.log(
-      "SWITCHING TO GEMINI"
-    );
-
   }
-
 
   // ===================================================
   // GEMINI FALLBACK
   // ===================================================
 
-  try {
+  if (gemini) {
+    try {
+      const answer = await callGemini(question);
 
-    const answer =
-      await callGemini(message);
+      return {
+        answer,
+        source: "gemini",
+      };
+    } catch (error) {
+      geminiError = error;
 
-
-    return {
-
-      answer: answer,
-
-      source: "gemini"
-
-    };
-
-  }
-
-  catch (geminiError) {
+      console.error(
+        "GEMINI FAILED."
+      );
+    }
+  } else {
+    geminiError = new Error(
+      "GEMINI_API_KEY is missing."
+    );
 
     console.error(
-      "GEMINI FAILED:",
-      geminiError.message
+      "GEMINI unavailable because GEMINI_API_KEY is missing."
     );
-
-
-    throw new Error(
-      "SIRC AI services are currently unavailable."
-    );
-
   }
 
-}
+  // ===================================================
+  // BOTH FAILED
+  // ===================================================
 
+  console.error("==========================================");
+  console.error("ALL AI SERVICES FAILED");
+  console.error("GROQ:", groqError?.message);
+  console.error("GEMINI:", geminiError?.message);
+  console.error("==========================================");
+
+  throw new Error(
+    `AI services unavailable. Groq: ${
+      groqError?.message || "unavailable"
+    } | Gemini: ${
+      geminiError?.message || "unavailable"
+    }`
+  );
+}
 
 // =====================================================
 // EXPORT
 // =====================================================
 
 module.exports = {
-
   askAI,
-
   callGroq,
-
-  callGemini
-
+  callGemini,
 };
