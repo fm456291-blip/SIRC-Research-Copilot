@@ -1,166 +1,310 @@
-// =====================================================
-// SIRC RESEARCH COPILOT
-// AUTH ROUTES (SIGNUP / LOGIN)
-// LOCAL JSON FILE STORAGE (users.json)
-// =====================================================
-const express = require("express");
-const bcrypt = require("bcryptjs");
-const fs = require("fs");
-const path = require("path");
+import { useState } from "react";
 
-const router = express.Router();
+const API_BASE_URL =
+  "https://sirc-research-copilot-api.onrender.com";
 
-// =====================================================
-// USERS FILE PATH (LOCAL STORAGE)
-// server/users.json ke andar save hoga
-// =====================================================
-const USERS_FILE = path.join(__dirname, "users.json");
+export default function Auth({ setUser }) {
+  const [isSignup, setIsSignup] = useState(false);
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-// =====================================================
-// LOAD USERS FROM FILE
-// =====================================================
-function loadUsers() {
-  try {
-    if (!fs.existsSync(USERS_FILE)) {
-      fs.writeFileSync(USERS_FILE, "[]", "utf-8");
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+
+    if (loading) return;
+
+    setAuthError("");
+    setLoading(true);
+
+    const endpoint = isSignup
+      ? "/api/signup"
+      : "/api/login";
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}${endpoint}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            username: authUsername.trim(),
+            password: authPassword,
+          }),
+        }
+      );
+
+      // IMPORTANT:
+      // Pehle response ko text mein read karo.
+      // Agar server HTML return kare to JSON error nahi ayega.
+      const rawResponse = await response.text();
+
+      let data = null;
+
+      try {
+        data = JSON.parse(rawResponse);
+      } catch {
+        console.error(
+          "Non-JSON response from API:",
+          rawResponse
+        );
+
+        throw new Error(
+          "The authentication server is not returning JSON. Please check the API service on Render."
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            data?.message ||
+            "Authentication failed."
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(
+          data?.error ||
+            "Authentication was unsuccessful."
+        );
+      }
+
+      const userData = {
+        id: data.userId || data.id || authUsername.trim(),
+        username:
+          data.username ||
+          authUsername.trim(),
+      };
+
+      // Save logged-in user locally
+      localStorage.setItem(
+        "sirc_user",
+        JSON.stringify(userData)
+      );
+
+      // Send user to App.jsx
+      setUser(userData);
+
+    } catch (error) {
+      console.error(
+        "Authentication error:",
+        error
+      );
+
+      setAuthError(
+        error.message ||
+          "Unable to connect to the authentication server."
+      );
+
+    } finally {
+      setLoading(false);
     }
-    const raw = fs.readFileSync(USERS_FILE, "utf-8");
-    return JSON.parse(raw || "[]");
-  } catch (error) {
-    console.error("USERS FILE READ ERROR:", error.message);
-    return [];
-  }
-}
+  };
 
-// =====================================================
-// SAVE USERS TO FILE
-// =====================================================
-function saveUsers(users) {
-  fs.writeFileSync(
-    USERS_FILE,
-    JSON.stringify(users, null, 2),
-    "utf-8"
+  const switchMode = () => {
+    setIsSignup((previous) => !previous);
+    setAuthError("");
+    setAuthUsername("");
+    setAuthPassword("");
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh",
+        background: "#0f172a",
+        color: "#fff",
+        fontFamily: "sans-serif",
+        padding: "20px",
+        boxSizing: "border-box",
+      }}
+    >
+      <form
+        onSubmit={handleAuthSubmit}
+        style={{
+          background: "#1e293b",
+          padding: "40px",
+          borderRadius: "12px",
+          width: "350px",
+          maxWidth: "100%",
+          boxShadow:
+            "0 4px 20px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div
+          style={{
+            textAlign: "center",
+            marginBottom: "20px",
+          }}
+        >
+          <h2
+            style={{
+              color: "#6366f1",
+              margin: "0 0 5px 0",
+            }}
+          >
+            SIRC
+          </h2>
+
+          <span
+            style={{
+              fontSize: "14px",
+              color: "#94a3b8",
+            }}
+          >
+            Research Copilot Login
+          </span>
+        </div>
+
+        {authError && (
+          <div
+            style={{
+              background: "#ef4444",
+              color: "#fff",
+              padding: "10px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              marginBottom: "15px",
+              textAlign: "center",
+              lineHeight: "1.4",
+            }}
+          >
+            {authError}
+          </div>
+        )}
+
+        <div
+          style={{
+            marginBottom: "15px",
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              fontSize: "13px",
+              marginBottom: "5px",
+              color: "#cbd5e1",
+            }}
+          >
+            Username
+          </label>
+
+          <input
+            type="text"
+            required
+            minLength={3}
+            placeholder="Enter username"
+            value={authUsername}
+            onChange={(e) =>
+              setAuthUsername(e.target.value)
+            }
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "10px",
+              borderRadius: "6px",
+              border:
+                "1px solid #475569",
+              background: "#0f172a",
+              color: "#fff",
+              boxSizing: "border-box",
+              outline: "none",
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            marginBottom: "20px",
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              fontSize: "13px",
+              marginBottom: "5px",
+              color: "#cbd5e1",
+            }}
+          >
+            Password
+          </label>
+
+          <input
+            type="password"
+            required
+            minLength={6}
+            placeholder="Enter password"
+            value={authPassword}
+            onChange={(e) =>
+              setAuthPassword(e.target.value)
+            }
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "10px",
+              borderRadius: "6px",
+              border:
+                "1px solid #475569",
+              background: "#0f172a",
+              color: "#fff",
+              boxSizing: "border-box",
+              outline: "none",
+            }}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "11px",
+            background: loading
+              ? "#4f46a5"
+              : "#6366f1",
+            color: "#fff",
+            border: "none",
+            borderRadius: "6px",
+            cursor: loading
+              ? "not-allowed"
+              : "pointer",
+            fontWeight: "bold",
+            fontSize: "14px",
+          }}
+        >
+          {loading
+            ? "Please wait..."
+            : isSignup
+            ? "Sign Up"
+            : "Login"}
+        </button>
+
+        <p
+          onClick={
+            loading ? undefined : switchMode
+          }
+          style={{
+            marginTop: "20px",
+            cursor: loading
+              ? "default"
+              : "pointer",
+            fontSize: "13px",
+            color: "#93c5fd",
+            textAlign: "center",
+          }}
+        >
+          {isSignup
+            ? "Already have an account? Login"
+            : "Don't have an account? Sign Up"}
+        </p>
+      </form>
+    </div>
   );
 }
-
-// =====================================================
-// SIGNUP
-// POST /api/signup
-// =====================================================
-router.post("/signup", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (
-      !username ||
-      !username.trim() ||
-      !password ||
-      password.length < 6
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Username aur kam az kam 6 character ka password required hai.",
-      });
-    }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const users = loadUsers();
-
-    const existingUser = users.find(
-      (u) => u.username === cleanUsername
-    );
-
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        error: "Ye username pehle se registered hai.",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newUser = {
-      id: Date.now().toString(),
-      username: cleanUsername,
-      password: hashedPassword,
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    saveUsers(users);
-
-    console.log("NEW USER SIGNED UP:", cleanUsername);
-
-    return res.json({
-      success: true,
-      userId: newUser.id,
-      username: newUser.username,
-    });
-  } catch (error) {
-    console.error("SIGNUP ERROR:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: "Signup fail ho gaya. Dobara try karein.",
-    });
-  }
-});
-
-// =====================================================
-// LOGIN
-// POST /api/login
-// =====================================================
-router.post("/login", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    if (!username || !username.trim() || !password) {
-      return res.status(400).json({
-        success: false,
-        error: "Username aur password required hain.",
-      });
-    }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const users = loadUsers();
-
-    const user = users.find(
-      (u) => u.username === cleanUsername
-    );
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Username ya password ghalat hai.",
-      });
-    }
-
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user.password
-    );
-
-    if (!passwordMatches) {
-      return res.status(401).json({
-        success: false,
-        error: "Username ya password ghalat hai.",
-      });
-    }
-
-    console.log("USER LOGGED IN:", cleanUsername);
-
-    return res.json({
-      success: true,
-      userId: user.id,
-      username: user.username,
-    });
-  } catch (error) {
-    console.error("LOGIN ERROR:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: "Login fail ho gaya. Dobara try karein.",
-    });
-  }
-});
-
-module.exports = router;
