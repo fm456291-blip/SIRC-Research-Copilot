@@ -9,6 +9,7 @@
 
 require("dotenv").config();
 
+
 // =====================================================
 // IMPORTS
 // =====================================================
@@ -35,11 +36,13 @@ const {
   DB_PATH
 } = require("./calibre.cjs");
 
+
 // =====================================================
 // EXPRESS APP
 // =====================================================
 
 const app = express();
+
 
 // =====================================================
 // MIDDLEWARE
@@ -48,21 +51,13 @@ const app = express();
 app.use(
   cors({
     origin: true,
-    credentials: false
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Accept", "Authorization"]
   })
 );
 
-app.use(
-  express.json({
-    limit: "2mb"
-  })
-);
+app.use(express.json());
 
-app.use(
-  express.urlencoded({
-    extended: true
-  })
-);
 
 // =====================================================
 // STARTUP INFORMATION
@@ -89,73 +84,573 @@ console.log(
 
 console.log("STEP 1: Server file started");
 
+
 // =====================================================
-// AUTH DATABASE
+// DATABASE DIRECTORY
 // =====================================================
 
-const authDatabasePath =
-  path.join(__dirname, "auth.db");
+const dataDirectory =
+  path.join(__dirname, "data");
 
-const authDB =
+if (!fs.existsSync(dataDirectory)) {
+  fs.mkdirSync(
+    dataDirectory,
+    {
+      recursive: true
+    }
+  );
+}
+
+
+// =====================================================
+// USER DATABASE
+// =====================================================
+
+const USER_DB_PATH =
+  path.join(
+    dataDirectory,
+    "users.db"
+  );
+
+console.log(
+  "USER DATABASE:",
+  USER_DB_PATH
+);
+
+
+const userDB =
   new sqlite3.Database(
-    authDatabasePath,
+    USER_DB_PATH,
     (error) => {
 
       if (error) {
 
         console.error(
-          "AUTH DATABASE CONNECTION ERROR:",
+          "USER DATABASE CONNECTION ERROR:",
           error.message
         );
 
       } else {
 
         console.log(
-          "AUTH DATABASE CONNECTED:",
-          authDatabasePath
+          "USER DATABASE CONNECTED"
         );
 
       }
 
     }
   );
+
 
 // =====================================================
 // CREATE USERS TABLE
 // =====================================================
 
-authDB.serialize(() => {
+userDB.serialize(() => {
 
-  authDB.run(
-    `
+  userDB.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      username TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL,
       created_at TEXT NOT NULL
     )
-    `,
-    (error) => {
+  `);
 
-      if (error) {
+});
 
-        console.error(
-          "USERS TABLE ERROR:",
-          error.message
-        );
 
-      } else {
+// =====================================================
+// DATABASE HELPERS
+// =====================================================
 
-        console.log(
-          "USERS TABLE READY"
-        );
+function findUser(username) {
 
-      }
+  return new Promise(
+    (resolve, reject) => {
+
+      userDB.get(
+        `
+        SELECT
+          id,
+          username,
+          password,
+          created_at
+        FROM users
+        WHERE username = ?
+        `,
+        [username],
+        (error, row) => {
+
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve(row || null);
+
+        }
+      );
 
     }
   );
 
-});
+}
+
+
+function createUser(
+  username,
+  hashedPassword
+) {
+
+  return new Promise(
+    (resolve, reject) => {
+
+      userDB.run(
+        `
+        INSERT INTO users
+        (
+          username,
+          password,
+          created_at
+        )
+        VALUES
+        (?, ?, ?)
+        `,
+        [
+          username,
+          hashedPassword,
+          new Date().toISOString()
+        ],
+        function (error) {
+
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve({
+            id: this.lastID,
+            username
+          });
+
+        }
+      );
+
+    }
+  );
+
+}
+
+
+// =====================================================
+// AUTHENTICATION - SIGNUP
+// =====================================================
+
+app.post(
+  "/api/signup",
+  async (req, res) => {
+
+    try {
+
+      const {
+        username,
+        password
+      } = req.body || {};
+
+
+      // -------------------------------------------------
+      // VALIDATE USERNAME
+      // -------------------------------------------------
+
+      if (
+        typeof username !== "string" ||
+        !username.trim()
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Username is required."
+
+        });
+
+      }
+
+
+      // -------------------------------------------------
+      // VALIDATE PASSWORD
+      // -------------------------------------------------
+
+      if (
+        typeof password !== "string" ||
+        !password
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Password is required."
+
+        });
+
+      }
+
+
+      const cleanUsername =
+        username.trim().toLowerCase();
+
+
+      if (
+        cleanUsername.length < 3
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Username must contain at least 3 characters."
+
+        });
+
+      }
+
+
+      if (
+        password.length < 6
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Password must contain at least 6 characters."
+
+        });
+
+      }
+
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "SIGNUP REQUEST:",
+        cleanUsername
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+
+      // -------------------------------------------------
+      // CHECK EXISTING USER
+      // -------------------------------------------------
+
+      const existingUser =
+        await findUser(
+          cleanUsername
+        );
+
+
+      if (existingUser) {
+
+        return res.status(409).json({
+
+          success: false,
+
+          error:
+            "Username already exists. Please login."
+
+        });
+
+      }
+
+
+      // -------------------------------------------------
+      // HASH PASSWORD
+      // -------------------------------------------------
+
+      const hashedPassword =
+        await bcrypt.hash(
+          password,
+          10
+        );
+
+
+      // -------------------------------------------------
+      // CREATE USER
+      // -------------------------------------------------
+
+      const newUser =
+        await createUser(
+          cleanUsername,
+          hashedPassword
+        );
+
+
+      console.log(
+        "USER CREATED:",
+        newUser.username
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          "Account created successfully.",
+
+        userId:
+          newUser.id,
+
+        username:
+          newUser.username
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "SIGNUP ERROR:",
+        error
+      );
+
+
+      // SQLite duplicate username protection
+      if (
+        error &&
+        error.code === "SQLITE_CONSTRAINT"
+      ) {
+
+        return res.status(409).json({
+
+          success: false,
+
+          error:
+            "Username already exists. Please login."
+
+        });
+
+      }
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          "Unable to create account.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// =====================================================
+// AUTHENTICATION - LOGIN
+// =====================================================
+
+app.post(
+  "/api/login",
+  async (req, res) => {
+
+    try {
+
+      const {
+        username,
+        password
+      } = req.body || {};
+
+
+      // -------------------------------------------------
+      // VALIDATE USERNAME
+      // -------------------------------------------------
+
+      if (
+        typeof username !== "string" ||
+        !username.trim()
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Username is required."
+
+        });
+
+      }
+
+
+      // -------------------------------------------------
+      // VALIDATE PASSWORD
+      // -------------------------------------------------
+
+      if (
+        typeof password !== "string" ||
+        !password
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Password is required."
+
+        });
+
+      }
+
+
+      const cleanUsername =
+        username.trim().toLowerCase();
+
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "LOGIN REQUEST:",
+        cleanUsername
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+
+      // -------------------------------------------------
+      // FIND USER
+      // -------------------------------------------------
+
+      const user =
+        await findUser(
+          cleanUsername
+        );
+
+
+      if (!user) {
+
+        console.log(
+          "LOGIN FAILED: USER NOT FOUND"
+        );
+
+
+        return res.status(401).json({
+
+          success: false,
+
+          error:
+            "Invalid username or password."
+
+        });
+
+      }
+
+
+      // -------------------------------------------------
+      // CHECK PASSWORD
+      // -------------------------------------------------
+
+      const passwordMatches =
+        await bcrypt.compare(
+          password,
+          user.password
+        );
+
+
+      if (!passwordMatches) {
+
+        console.log(
+          "LOGIN FAILED: INVALID PASSWORD"
+        );
+
+
+        return res.status(401).json({
+
+          success: false,
+
+          error:
+            "Invalid username or password."
+
+        });
+
+      }
+
+
+      // -------------------------------------------------
+      // LOGIN SUCCESS
+      // -------------------------------------------------
+
+      console.log(
+        "LOGIN SUCCESS:",
+        user.username
+      );
+
+
+      return res.status(200).json({
+
+        success: true,
+
+        message:
+          "Login successful.",
+
+        userId:
+          user.id,
+
+        username:
+          user.username
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "LOGIN ERROR:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          "Unable to process login.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
+
 
 // =====================================================
 // UPLOAD DIRECTORY
@@ -164,11 +659,8 @@ authDB.serialize(() => {
 const uploadDirectory =
   path.join(__dirname, "uploads");
 
-if (
-  !fs.existsSync(
-    uploadDirectory
-  )
-) {
+
+if (!fs.existsSync(uploadDirectory)) {
 
   fs.mkdirSync(
     uploadDirectory,
@@ -179,24 +671,25 @@ if (
 
 }
 
+
 // =====================================================
 // FILE UPLOAD
 // =====================================================
 
-const upload =
-  multer({
+const upload = multer({
 
-    dest:
-      uploadDirectory,
+  dest:
+    uploadDirectory,
 
-    limits: {
+  limits: {
 
-      fileSize:
-        20 * 1024 * 1024
+    fileSize:
+      20 * 1024 * 1024
 
-    }
+  }
 
-  });
+});
+
 
 // =====================================================
 // HOME / HEALTH CHECK
@@ -206,7 +699,7 @@ app.get(
   "/",
   (req, res) => {
 
-    return res.json({
+    res.json({
 
       status:
         "online",
@@ -216,6 +709,9 @@ app.get(
 
       service:
         "SIRC Research Copilot",
+
+      authentication:
+        "enabled",
 
       ai: {
 
@@ -236,6 +732,7 @@ app.get(
   }
 );
 
+
 // =====================================================
 // SERVER HEALTH CHECK
 // =====================================================
@@ -244,13 +741,16 @@ app.get(
   "/api/health",
   (req, res) => {
 
-    return res.json({
+    res.json({
 
       status:
         "ok",
 
       message:
         "SIRC Research Copilot backend is healthy.",
+
+      authentication:
+        "enabled",
 
       timestamp:
         new Date().toISOString()
@@ -260,497 +760,6 @@ app.get(
   }
 );
 
-// =====================================================
-// AUTH HEALTH CHECK
-// =====================================================
-
-app.get(
-  "/api/auth/health",
-  (req, res) => {
-
-    return res.json({
-
-      success:
-        true,
-
-      message:
-        "Authentication service is working."
-
-    });
-
-  }
-);
-
-// =====================================================
-// SIGNUP
-// =====================================================
-
-app.post(
-  "/api/signup",
-  async (req, res) => {
-
-    try {
-
-      const username =
-        typeof req.body.username === "string"
-          ? req.body.username.trim()
-          : "";
-
-      const password =
-        typeof req.body.password === "string"
-          ? req.body.password
-          : "";
-
-      // -------------------------------------------------
-      // VALIDATION
-      // -------------------------------------------------
-
-      if (!username) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Username is required."
-
-        });
-
-      }
-
-      if (username.length < 3) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Username must be at least 3 characters."
-
-        });
-
-      }
-
-      if (username.length > 50) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Username must not exceed 50 characters."
-
-        });
-
-      }
-
-      if (!password) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Password is required."
-
-        });
-
-      }
-
-      if (password.length < 6) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Password must be at least 6 characters."
-
-        });
-
-      }
-
-      // -------------------------------------------------
-      // CHECK EXISTING USER
-      // -------------------------------------------------
-
-      authDB.get(
-        `
-        SELECT id, username
-        FROM users
-        WHERE username = ?
-        `,
-        [username],
-        async (findError, existingUser) => {
-
-          if (findError) {
-
-            console.error(
-              "SIGNUP USER CHECK ERROR:",
-              findError.message
-            );
-
-            return res.status(500).json({
-
-              success:
-                false,
-
-              error:
-                "Unable to check user account."
-
-            });
-
-          }
-
-          if (existingUser) {
-
-            return res.status(409).json({
-
-              success:
-                false,
-
-              error:
-                "Username already exists. Please choose another username."
-
-            });
-
-          }
-
-          // -------------------------------------------------
-          // HASH PASSWORD
-          // -------------------------------------------------
-
-          try {
-
-            const hashedPassword =
-              await bcrypt.hash(
-                password,
-                10
-              );
-
-            const createdAt =
-              new Date().toISOString();
-
-            // -------------------------------------------------
-            // CREATE USER
-            // -------------------------------------------------
-
-            authDB.run(
-              `
-              INSERT INTO users
-              (
-                username,
-                password,
-                created_at
-              )
-              VALUES (?, ?, ?)
-              `,
-              [
-                username,
-                hashedPassword,
-                createdAt
-              ],
-              function (insertError) {
-
-                if (insertError) {
-
-                  console.error(
-                    "SIGNUP INSERT ERROR:",
-                    insertError.message
-                  );
-
-                  return res.status(500).json({
-
-                    success:
-                      false,
-
-                    error:
-                      "Unable to create account."
-
-                  });
-
-                }
-
-                console.log(
-                  "NEW USER CREATED:",
-                  username
-                );
-
-                return res.status(201).json({
-
-                  success:
-                    true,
-
-                  message:
-                    "Account created successfully.",
-
-                  userId:
-                    this.lastID,
-
-                  username:
-                    username
-
-                });
-
-              }
-            );
-
-          }
-
-          catch (hashError) {
-
-            console.error(
-              "PASSWORD HASH ERROR:",
-              hashError.message
-            );
-
-            return res.status(500).json({
-
-              success:
-                false,
-
-              error:
-                "Unable to secure account password."
-
-            });
-
-          }
-
-        }
-      );
-
-    }
-
-    catch (error) {
-
-      console.error(
-        "SIGNUP ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-
-        success:
-          false,
-
-        error:
-          "Signup service is currently unavailable."
-
-      });
-
-    }
-
-  }
-);
-
-// =====================================================
-// LOGIN
-// =====================================================
-
-app.post(
-  "/api/login",
-  async (req, res) => {
-
-    try {
-
-      const username =
-        typeof req.body.username === "string"
-          ? req.body.username.trim()
-          : "";
-
-      const password =
-        typeof req.body.password === "string"
-          ? req.body.password
-          : "";
-
-      // -------------------------------------------------
-      // VALIDATION
-      // -------------------------------------------------
-
-      if (!username) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Username is required."
-
-        });
-
-      }
-
-      if (!password) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          error:
-            "Password is required."
-
-        });
-
-      }
-
-      // -------------------------------------------------
-      // FIND USER
-      // -------------------------------------------------
-
-      authDB.get(
-        `
-        SELECT
-          id,
-          username,
-          password
-        FROM users
-        WHERE username = ?
-        `,
-        [username],
-        async (error, user) => {
-
-          if (error) {
-
-            console.error(
-              "LOGIN DATABASE ERROR:",
-              error.message
-            );
-
-            return res.status(500).json({
-
-              success:
-                false,
-
-              error:
-                "Unable to access authentication database."
-
-            });
-
-          }
-
-          // -------------------------------------------------
-          // USER NOT FOUND
-          // -------------------------------------------------
-
-          if (!user) {
-
-            return res.status(401).json({
-
-              success:
-                false,
-
-              error:
-                "Invalid username or password."
-
-            });
-
-          }
-
-          // -------------------------------------------------
-          // COMPARE PASSWORD
-          // -------------------------------------------------
-
-          try {
-
-            const passwordMatches =
-              await bcrypt.compare(
-                password,
-                user.password
-              );
-
-            if (!passwordMatches) {
-
-              return res.status(401).json({
-
-                success:
-                  false,
-
-                error:
-                  "Invalid username or password."
-
-              });
-
-            }
-
-            // -------------------------------------------------
-            // LOGIN SUCCESS
-            // -------------------------------------------------
-
-            console.log(
-              "USER LOGIN SUCCESS:",
-              user.username
-            );
-
-            return res.json({
-
-              success:
-                true,
-
-              message:
-                "Login successful.",
-
-              userId:
-                user.id,
-
-              username:
-                user.username
-
-            });
-
-          }
-
-          catch (compareError) {
-
-            console.error(
-              "PASSWORD CHECK ERROR:",
-              compareError.message
-            );
-
-            return res.status(500).json({
-
-              success:
-                false,
-
-              error:
-                "Unable to verify password."
-
-            });
-
-          }
-
-        }
-      );
-
-    }
-
-    catch (error) {
-
-      console.error(
-        "LOGIN ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-
-        success:
-          false,
-
-        error:
-          "Login service is currently unavailable."
-
-      });
-
-    }
-
-  }
-);
 
 // =====================================================
 // CALIBRE DATABASE STATUS
@@ -766,12 +775,15 @@ app.get(
         "CHECKING CALIBRE DATABASE..."
       );
 
+
       const books =
         await getAllCalibreBooks();
+
 
       console.log(
         `CALIBRE DATABASE CONNECTED - ${books.length} BOOKS`
       );
+
 
       return res.json({
 
@@ -795,6 +807,7 @@ app.get(
         error.message
       );
 
+
       return res.status(500).json({
 
         status:
@@ -813,6 +826,7 @@ app.get(
   }
 );
 
+
 // =====================================================
 // SEARCH CALIBRE BOOKS
 // =====================================================
@@ -825,6 +839,7 @@ app.get(
 
       const query =
         req.query.q;
+
 
       if (
         !query ||
@@ -839,6 +854,7 @@ app.get(
         });
 
       }
+
 
       console.log(
         "=========================================="
@@ -856,10 +872,12 @@ app.get(
         "=========================================="
       );
 
+
       const results =
         await searchCalibreBooks(
           query.trim()
         );
+
 
       return res.json({
 
@@ -882,6 +900,7 @@ app.get(
         error.message
       );
 
+
       return res.status(500).json({
 
         error:
@@ -897,6 +916,7 @@ app.get(
   }
 );
 
+
 // =====================================================
 // RESEARCH RESOURCE RECOMMENDATIONS
 // =====================================================
@@ -909,6 +929,7 @@ app.get(
 
       const topic =
         req.query.topic;
+
 
       if (
         !topic ||
@@ -927,8 +948,10 @@ app.get(
 
       }
 
+
       const cleanTopic =
         topic.trim();
+
 
       console.log(
         "=========================================="
@@ -943,15 +966,18 @@ app.get(
         "=========================================="
       );
 
+
       const books =
         await searchCalibreBooks(
           cleanTopic
         );
 
+
       console.log(
         "CALIBRE RESOURCES FOUND:",
         books.length
       );
+
 
       return res.json({
 
@@ -978,6 +1004,7 @@ app.get(
         error.message
       );
 
+
       return res.status(500).json({
 
         success:
@@ -996,8 +1023,10 @@ app.get(
   }
 );
 
+
 // =====================================================
 // NORMAL AI CHAT
+// GROQ FIRST → GEMINI FALLBACK
 // =====================================================
 
 app.post(
@@ -1009,6 +1038,7 @@ app.post(
       const {
         message
       } = req.body;
+
 
       if (
         !message ||
@@ -1024,6 +1054,7 @@ app.post(
         });
 
       }
+
 
       console.log(
         "=========================================="
@@ -1041,23 +1072,18 @@ app.post(
         "=========================================="
       );
 
+
       const result =
         await askAI(
           message.trim()
         );
 
-      console.log(
-        "=========================================="
-      );
 
       console.log(
         "AI RESPONSE SOURCE:",
         result.source
       );
 
-      console.log(
-        "=========================================="
-      );
 
       return res.json({
 
@@ -1085,6 +1111,7 @@ app.post(
         "==============================="
       );
 
+
       return res.status(500).json({
 
         error:
@@ -1099,6 +1126,7 @@ app.post(
 
   }
 );
+
 
 // =====================================================
 // PDF ANALYSIS
@@ -1125,8 +1153,10 @@ app.post(
 
       }
 
+
       filePath =
         req.file.path;
+
 
       console.log(
         "=========================================="
@@ -1141,14 +1171,17 @@ app.post(
         "=========================================="
       );
 
+
       const fileBuffer =
         fs.readFileSync(
           filePath
         );
 
+
       console.log(
         "Starting PDF text extraction..."
       );
+
 
       parser =
         new PDFParse({
@@ -1158,15 +1191,19 @@ app.post(
 
         });
 
+
       const pdfData =
         await parser.getText();
+
 
       const extractedText =
         pdfData.text || "";
 
+
       console.log(
         `Extracted ${extractedText.length} characters.`
       );
+
 
       if (
         !extractedText.trim()
@@ -1181,13 +1218,16 @@ app.post(
 
       }
 
+
       const action =
         req.body.action ||
         "general";
 
+
       const question =
         req.body.question ||
         "";
+
 
       const actionInstructions = {
 
@@ -1292,19 +1332,24 @@ Include:
 
       };
 
+
       const instruction =
         actionInstructions[action] ||
         actionInstructions.general;
+
 
       const cleanText =
         extractedText
           .replace(/\s+/g, " ")
           .trim();
 
+
       const MAX_CHARS =
         24000;
 
+
       const chunks = [];
+
 
       for (
         let i = 0;
@@ -1313,21 +1358,22 @@ Include:
       ) {
 
         chunks.push(
-
           cleanText.substring(
             i,
             i + MAX_CHARS
           )
-
         );
 
       }
+
 
       console.log(
         `PDF divided into ${chunks.length} chunks`
       );
 
+
       const chunkAnswers = [];
+
 
       for (
         let i = 0;
@@ -1338,6 +1384,7 @@ Include:
         console.log(
           `PROCESSING PDF CHUNK ${i + 1}/${chunks.length}`
         );
+
 
         const chunkPrompt = `
 
@@ -1368,20 +1415,24 @@ ${chunks[i]}
 
 `;
 
+
         try {
 
           console.log(
             `CALLING GROQ FOR PDF CHUNK ${i + 1}`
           );
 
+
           const chunkAnswer =
             await callGroq(
               chunkPrompt
             );
 
+
           chunkAnswers.push(
             chunkAnswer
           );
+
 
           console.log(
             `GROQ CHUNK ${i + 1} COMPLETED`
@@ -1396,9 +1447,11 @@ ${chunks[i]}
             groqError.message
           );
 
+
           console.log(
             `SWITCHING CHUNK ${i + 1} TO GEMINI`
           );
+
 
           try {
 
@@ -1407,9 +1460,11 @@ ${chunks[i]}
                 chunkPrompt
               );
 
+
             chunkAnswers.push(
               geminiAnswer
             );
+
 
             console.log(
               `GEMINI CHUNK ${i + 1} COMPLETED`
@@ -1424,6 +1479,7 @@ ${chunks[i]}
               geminiError.message
             );
 
+
             throw new Error(
               `Both AI services failed while processing PDF chunk ${i + 1}.`
             );
@@ -1434,14 +1490,17 @@ ${chunks[i]}
 
       }
 
+
       console.log(
         "ALL PDF CHUNKS PROCESSED"
       );
+
 
       const combinedAnalysis =
         chunkAnswers.join(
           "\n\n---\n\n"
         );
+
 
       const finalPrompt = `
 
@@ -1489,20 +1548,24 @@ Provide the final academic answer now.
 
 `;
 
+
       try {
 
         console.log(
           "CALLING GROQ FOR FINAL PDF SYNTHESIS"
         );
 
+
         const finalAnswer =
           await callGroq(
             finalPrompt
           );
 
+
         console.log(
           "GROQ FINAL PDF ANSWER CREATED"
         );
+
 
         return res.json({
 
@@ -1526,9 +1589,11 @@ Provide the final academic answer now.
           finalGroqError.message
         );
 
+
         console.log(
           "SWITCHING FINAL SYNTHESIS TO GEMINI"
         );
+
 
         try {
 
@@ -1537,22 +1602,24 @@ Provide the final academic answer now.
               finalPrompt
             );
 
-            console.log(
-              "GEMINI FINAL PDF ANSWER CREATED"
-            );
 
-            return res.json({
+          console.log(
+            "GEMINI FINAL PDF ANSWER CREATED"
+          );
 
-              answer:
-                finalAnswer,
 
-              filename:
-                req.file.originalname,
+          return res.json({
 
-              source:
-                "gemini"
+            answer:
+              finalAnswer,
 
-            });
+            filename:
+              req.file.originalname,
+
+            source:
+              "gemini"
+
+          });
 
         }
 
@@ -1562,6 +1629,7 @@ Provide the final academic answer now.
             "FINAL GEMINI SYNTHESIS FAILED:",
             finalGeminiError.message
           );
+
 
           throw new Error(
             "Both AI services failed during final PDF synthesis."
@@ -1582,6 +1650,7 @@ Provide the final academic answer now.
       console.error(
         error
       );
+
 
       return res.status(500).json({
 
@@ -1615,6 +1684,7 @@ Provide the final academic answer now.
         }
 
       }
+
 
       if (filePath) {
 
@@ -1650,6 +1720,7 @@ Provide the final academic answer now.
   }
 );
 
+
 // =====================================================
 // 404 HANDLER
 // MUST BE LAST
@@ -1658,7 +1729,7 @@ Provide the final academic answer now.
 app.use(
   (req, res) => {
 
-    return res.status(404).json({
+    res.status(404).json({
 
       success:
         false,
@@ -1674,6 +1745,7 @@ app.use(
   }
 );
 
+
 // =====================================================
 // GLOBAL ERROR HANDLER
 // =====================================================
@@ -1686,7 +1758,8 @@ app.use(
       error
     );
 
-    return res.status(500).json({
+
+    res.status(500).json({
 
       success:
         false,
@@ -1702,6 +1775,7 @@ app.use(
   }
 );
 
+
 // =====================================================
 // START SERVER
 // =====================================================
@@ -1709,9 +1783,11 @@ app.use(
 const PORT =
   process.env.PORT || 5000;
 
+
 console.log(
   "STEP 2: About to start server"
 );
+
 
 app.listen(
   PORT,
@@ -1739,7 +1815,11 @@ app.listen(
     );
 
     console.log(
-      `AUTH HEALTH: http://localhost:${PORT}/api/auth/health`
+      `LOGIN: http://localhost:${PORT}/api/login`
+    );
+
+    console.log(
+      `SIGNUP: http://localhost:${PORT}/api/signup`
     );
 
     console.log(
