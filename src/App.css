@@ -2232,3 +2232,716 @@ textarea::placeholder {
   }
 
 }
+/* =====================================================
+   SIRC LIBRARY RECOMMENDATIONS
+   ===================================================== */
+
+.recommendations-section {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto 24px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  box-sizing: border-box;
+}
+
+.recommendations-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.recommendations-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  opacity: 0.65;
+  margin-bottom: 6px;
+}
+
+.recommendations-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.recommendations-header p {
+  margin: 7px 0 0;
+  opacity: 0.65;
+  font-size: 13px;
+}
+
+.recommendations-count {
+  padding: 7px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.06);
+  opacity: 0.8;
+}
+
+.recommendations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.recommendation-card {
+  display: flex;
+  gap: 14px;
+  padding: 17px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.035);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.recommendation-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.book-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 20px;
+}
+
+.book-content {
+  min-width: 0;
+}
+
+.book-content h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.book-author,
+.book-meta {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+
+.book-author strong,
+.book-meta strong {
+  opacity: 0.9;
+}
+
+.recommendations-loading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.recommendations-loading strong {
+  font-size: 14px;
+}
+
+.recommendations-loading p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.recommendation-spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: currentColor;
+  animation: recommendationSpin 0.8s linear infinite;
+}
+
+@keyframes recommendationSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.recommendations-error {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 13px;
+  background: rgba(255, 80, 80, 0.06);
+  border: 1px solid rgba(255, 80, 80, 0.12);
+}
+
+.recommendations-error > span {
+  font-size: 18px;
+}
+
+.recommendations-error strong {
+  font-size: 13px;
+}
+
+.recommendations-error p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.no-recommendations {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.no-recommendations > span {
+  font-size: 24px;
+}
+
+.no-recommendations strong {
+  font-size: 13px;
+}
+
+.no-recommendations p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+@media (max-width: 800px) {
+  .recommendations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recommendations-section {
+    padding: 18px;
+  }
+
+  .recommendations-header {
+    flex-direction: column;
+  }
+}
+/* =====================================================
+   SIRC RESEARCH REPOSITORY
+   ===================================================== */
+
+.repository-section {
+  width: min(900px, 94%);
+  margin: 24px auto;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.repository-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.repository-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  opacity: 0.65;
+  margin-bottom: 7px;
+}
+
+.repository-header h3 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.repository-header p {
+  margin: 8px 0 0;
+  line-height: 1.6;
+  opacity: 0.72;
+}
+
+.repository-notice {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.repository-notice-icon {
+  font-size: 25px;
+  line-height: 1;
+}
+
+.repository-notice strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 5px;
+}
+
+.repository-notice p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.75;
+}
+
+.repository-notice a,
+.repository-footer a {
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.repository-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.repository-resource {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: 0.2s ease;
+}
+
+.repository-resource:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.resource-number {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.resource-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.resource-content h4 {
+  margin: 0 0 7px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.resource-authors,
+.resource-meta {
+  margin: 3px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.68;
+}
+
+.resource-badge {
+  white-space: nowrap;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 0.8;
+}
+
+.repository-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 18px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.repository-loading {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.repository-loading span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: repositoryPulse 1.2s infinite ease-in-out;
+}
+
+.repository-loading span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.repository-loading span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes repositoryPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.repository-error {
+  width: min(900px, 94%);
+  margin: 20px auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 80, 80, 0.07);
+  border: 1px solid rgba(255, 80, 80, 0.18);
+}
+
+.repository-error p {
+  margin: 5px 0 0;
+  opacity: 0.7;
+}
+
+
+/* =====================================================
+   RESPONSIVE REPOSITORY
+   ===================================================== */
+
+@media (max-width: 700px) {
+
+  .repository-section {
+    width: 92%;
+    padding: 18px;
+  }
+
+  .repository-resource {
+    flex-wrap: wrap;
+  }
+
+  .resource-badge {
+    margin-left: 44px;
+  }
+
+  .repository-footer {
+    flex-direction: column;
+  }
+
+}
+/* =====================================================
+   SIRC RESEARCH REPOSITORY
+===================================================== */
+
+.repository-section {
+  width: min(1100px, calc(100% - 40px));
+  margin: 24px auto 120px;
+  padding: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(12px);
+}
+
+.repository-header {
+  margin-bottom: 20px;
+}
+
+.repository-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #7dd3fc;
+  margin-bottom: 8px;
+}
+
+.repository-header h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.repository-header p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
+}
+
+.repository-header strong {
+  color: #fff;
+}
+
+/* NOTICE */
+
+.repository-notice {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+  padding: 17px 18px;
+  margin-bottom: 22px;
+  border-radius: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(125, 211, 252, 0.06);
+}
+
+.repository-notice-icon {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(125, 211, 252, 0.12);
+  font-size: 21px;
+  flex-shrink: 0;
+}
+
+.repository-notice strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 15px;
+}
+
+.repository-notice p {
+  margin: 0 0 6px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.repository-notice a,
+.repository-footer a,
+.repository-error a {
+  color: #7dd3fc;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.repository-notice a:hover,
+.repository-footer a:hover,
+.repository-error a:hover {
+  text-decoration: underline;
+}
+
+/* RESOURCE GRID */
+
+.repository-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.repository-card {
+  display: flex;
+  gap: 15px;
+  padding: 19px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.repository-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.25);
+  background: rgba(125, 211, 252, 0.045);
+}
+
+.repository-card-icon {
+  width: 44px;
+  height: 52px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.repository-card-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.repository-resource-type {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  color: #7dd3fc;
+}
+
+.repository-card h3 {
+  margin: 0 0 9px;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #fff;
+}
+
+.repository-author,
+.repository-year,
+.repository-subject {
+  margin: 4px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.repository-author strong,
+.repository-year strong,
+.repository-subject strong {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.repository-availability {
+  display: inline-flex;
+  margin-top: 11px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #86efac;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* FOOTER */
+
+.repository-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+/* LOADING */
+
+.repository-loading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.repository-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #7dd3fc;
+  border-radius: 50%;
+  animation: repositorySpin 0.8s linear infinite;
+}
+
+.repository-loading strong {
+  display: block;
+  font-size: 14px;
+}
+
+.repository-loading p {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+}
+
+@keyframes repositorySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ERROR */
+
+.repository-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.repository-error-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.repository-error strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.repository-error p {
+  margin: 0 0 7px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 13px;
+}
+
+/* MOBILE */
+
+@media (max-width: 700px) {
+
+  .repository-section {
+    width: calc(100% - 24px);
+    padding: 18px;
+    margin-bottom: 100px;
+  }
+
+  .repository-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .repository-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+}

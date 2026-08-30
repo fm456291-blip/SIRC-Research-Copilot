@@ -3,13 +3,7 @@
 // MAIN SERVER
 // GROQ → GEMINI FALLBACK
 // PDF RESEARCH ANALYSIS
-// =====================================================
-
-
-// =====================================================
-// ENVIRONMENT VARIABLES
-// IMPORTANT:
-// .env is in the ROOT project folder
+// CALIBRE INTEGRATION
 // =====================================================
 
 require("dotenv").config();
@@ -23,6 +17,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
+const path = require("path");
 
 const { PDFParse } = require("pdf-parse");
 
@@ -32,6 +27,12 @@ const {
   callGemini
 } = require("./ai.cjs");
 
+const {
+  searchCalibreBooks,
+  getAllCalibreBooks,
+  DB_PATH
+} = require("./calibre.cjs");
+
 
 // =====================================================
 // EXPRESS APP
@@ -39,13 +40,18 @@ const {
 
 const app = express();
 
+
+// =====================================================
+// MIDDLEWARE
+// =====================================================
+
 app.use(cors());
 
 app.use(express.json());
 
 
 // =====================================================
-// STARTUP LOGS
+// STARTUP INFORMATION
 // =====================================================
 
 console.log("==========================================");
@@ -62,7 +68,32 @@ console.log(
   process.env.GEMINI_API_KEY ? "LOADED" : "MISSING"
 );
 
+console.log(
+  "CALIBRE DATABASE:",
+  DB_PATH
+);
+
 console.log("STEP 1: Server file started");
+
+
+// =====================================================
+// UPLOAD DIRECTORY
+// =====================================================
+
+const uploadDirectory =
+  path.join(__dirname, "uploads");
+
+
+if (!fs.existsSync(uploadDirectory)) {
+
+  fs.mkdirSync(
+    uploadDirectory,
+    {
+      recursive: true
+    }
+  );
+
+}
 
 
 // =====================================================
@@ -71,7 +102,7 @@ console.log("STEP 1: Server file started");
 
 const upload = multer({
 
-  dest: "server/uploads/",
+  dest: uploadDirectory,
 
   limits: {
 
@@ -84,19 +115,338 @@ const upload = multer({
 
 
 // =====================================================
-// HOME ROUTE
+// HOME / HEALTH CHECK
 // =====================================================
 
 app.get("/", (req, res) => {
 
   res.json({
 
+    status: "online",
+
     message:
-      "SIRC Research Copilot AI Server is running."
+      "SIRC Research Copilot AI Server is running.",
+
+    service:
+      "SIRC Research Copilot",
+
+    ai: {
+
+      groq:
+        process.env.GROQ_API_KEY
+          ? "configured"
+          : "missing",
+
+      gemini:
+        process.env.GEMINI_API_KEY
+          ? "configured"
+          : "missing"
+
+    }
 
   });
 
 });
+
+
+// =====================================================
+// SERVER HEALTH CHECK
+// =====================================================
+
+app.get("/api/health", (req, res) => {
+
+  res.json({
+
+    status: "ok",
+
+    message:
+      "SIRC Research Copilot backend is healthy.",
+
+    timestamp:
+      new Date().toISOString()
+
+  });
+
+});
+
+
+// =====================================================
+// CALIBRE DATABASE STATUS
+// =====================================================
+
+app.get(
+  "/api/calibre/status",
+  async (req, res) => {
+
+    try {
+
+      console.log(
+        "CHECKING CALIBRE DATABASE..."
+      );
+
+
+      const books =
+        await getAllCalibreBooks();
+
+
+      console.log(
+        `CALIBRE DATABASE CONNECTED - ${books.length} BOOKS`
+      );
+
+
+      return res.json({
+
+        status:
+          "connected",
+
+        database:
+          DB_PATH,
+
+        totalBooks:
+          books.length
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "CALIBRE STATUS ERROR:",
+        error.message
+      );
+
+
+      return res.status(500).json({
+
+        status:
+          "error",
+
+        message:
+          "Unable to connect to Calibre database.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// =====================================================
+// SEARCH CALIBRE BOOKS
+// =====================================================
+
+app.get(
+  "/api/calibre/search",
+  async (req, res) => {
+
+    try {
+
+      const query =
+        req.query.q;
+
+
+      if (
+        !query ||
+        !query.trim()
+      ) {
+
+        return res.status(400).json({
+
+          error:
+            "Search query is required."
+
+        });
+
+      }
+
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "CALIBRE SEARCH:"
+      );
+
+      console.log(
+        query
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+
+      const results =
+        await searchCalibreBooks(
+          query.trim()
+        );
+
+
+      return res.json({
+
+        query:
+          query.trim(),
+
+        count:
+          results.length,
+
+        results
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "CALIBRE SEARCH FAILED:",
+        error.message
+      );
+
+
+      return res.status(500).json({
+
+        error:
+          "Calibre search failed.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// =====================================================
+// RESEARCH RESOURCE RECOMMENDATIONS
+// CALIBRE → RESEARCH TOPIC
+//
+// IMPORTANT:
+// THIS ROUTE MUST COME BEFORE THE 404 HANDLER.
+// =====================================================
+
+app.get(
+  "/api/research-recommendations",
+  async (req, res) => {
+
+    try {
+
+      const topic =
+        req.query.topic;
+
+
+      // -------------------------------------------------
+      // CHECK TOPIC
+      // -------------------------------------------------
+
+      if (
+        !topic ||
+        !topic.trim()
+      ) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Research topic is required."
+
+        });
+
+      }
+
+
+      const cleanTopic =
+        topic.trim();
+
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "RESEARCH RESOURCE SEARCH:",
+        cleanTopic
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+
+      // -------------------------------------------------
+      // SEARCH CALIBRE
+      // -------------------------------------------------
+
+      const books =
+        await searchCalibreBooks(
+          cleanTopic
+        );
+
+
+      console.log(
+        "CALIBRE RESOURCES FOUND:",
+        books.length
+      );
+
+
+      // -------------------------------------------------
+      // RESPONSE
+      // -------------------------------------------------
+
+      return res.json({
+
+        success:
+          true,
+
+        topic:
+          cleanTopic,
+
+        count:
+          books.length,
+
+        resources:
+          books
+
+      });
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "RESEARCH RESOURCE ERROR:",
+        error.message
+      );
+
+
+      return res.status(500).json({
+
+        success:
+          false,
+
+        error:
+          "Unable to find research resources.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
 
 
 // =====================================================
@@ -121,6 +471,7 @@ app.post(
 
       if (
         !message ||
+        typeof message !== "string" ||
         !message.trim()
       ) {
 
@@ -135,18 +486,49 @@ app.post(
 
 
       console.log(
-        "USER MESSAGE:",
+        "=========================================="
+      );
+
+      console.log(
+        "NEW AI QUESTION:"
+      );
+
+      console.log(
         message
+      );
+
+      console.log(
+        "=========================================="
       );
 
 
       // =================================================
       // AI ROUTER
-      // GROQ → GEMINI
+      // GROQ → GEMINI FALLBACK
       // =================================================
 
       const result =
-        await askAI(message);
+        await askAI(
+          message.trim()
+        );
+
+
+      // =================================================
+      // LOG WHICH AI ANSWERED
+      // =================================================
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "AI RESPONSE SOURCE:",
+        result.source
+      );
+
+      console.log(
+        "=========================================="
+      );
 
 
       // =================================================
@@ -172,7 +554,7 @@ app.post(
       );
 
       console.error(
-        error.message
+        error
       );
 
       console.error(
@@ -198,9 +580,6 @@ app.post(
 
 // =====================================================
 // PDF ANALYSIS
-// SMART CHUNKING
-// GROQ FIRST
-// GEMINI FALLBACK
 // =====================================================
 
 app.post(
@@ -211,17 +590,12 @@ app.post(
 
   async (req, res) => {
 
+    let filePath = null;
 
-    let filePath =
-      null;
-
-
-    let parser =
-      null;
+    let parser = null;
 
 
     try {
-
 
       // =================================================
       // CHECK FILE
@@ -244,7 +618,16 @@ app.post(
 
 
       console.log(
-        `PDF received: ${req.file.originalname}`
+        "=========================================="
+      );
+
+      console.log(
+        "PDF RECEIVED:",
+        req.file.originalname
+      );
+
+      console.log(
+        "=========================================="
       );
 
 
@@ -323,7 +706,6 @@ app.post(
 
       const actionInstructions = {
 
-
         summarize: `
 
 Summarize this research paper.
@@ -341,7 +723,6 @@ Keep it concise and academic.
 
 `,
 
-
         gap: `
 
 Analyze this research paper and identify possible research gaps.
@@ -355,7 +736,6 @@ Never present an inference as an author-stated fact.
 
 `,
 
-
         objectives: `
 
 Identify the main research objectives.
@@ -366,7 +746,6 @@ Clearly distinguish:
 - Objectives reasonably inferred from the paper.
 
 `,
-
 
         methodology: `
 
@@ -383,7 +762,6 @@ Identify, where available:
 
 `,
 
-
         findings: `
 
 Identify and summarize the key findings of the research paper.
@@ -395,7 +773,6 @@ Do not invent results.
 Use short headings and bullet points.
 
 `,
-
 
         questions: `
 
@@ -412,7 +789,6 @@ Base them on:
 Make the questions academically meaningful.
 
 `,
-
 
         general: `
 
@@ -438,7 +814,7 @@ Include:
 
 
       // =================================================
-      // SMART PDF CLEANING
+      // CLEAN PDF TEXT
       // =================================================
 
       const cleanText =
@@ -455,8 +831,7 @@ Include:
         24000;
 
 
-      const chunks =
-        [];
+      const chunks = [];
 
 
       for (
@@ -483,11 +858,10 @@ Include:
 
 
       // =================================================
-      // PROCESS EACH CHUNK
+      // PROCESS CHUNKS
       // =================================================
 
-      const chunkAnswers =
-        [];
+      const chunkAnswers = [];
 
 
       for (
@@ -496,15 +870,10 @@ Include:
         i++
       ) {
 
-
         console.log(
           `PROCESSING PDF CHUNK ${i + 1}/${chunks.length}`
         );
 
-
-        // =================================================
-        // CHUNK PROMPT
-        // =================================================
 
         const chunkPrompt = `
 
@@ -516,7 +885,6 @@ of a research paper.
 Requested task:
 
 ${instruction}
-
 
 IMPORTANT RULES:
 
@@ -530,7 +898,6 @@ IMPORTANT RULES:
 8. Keep the response concise.
 9. This is one part of a larger research paper.
 
-
 RESEARCH PAPER PART ${i + 1}:
 
 ${chunks[i]}
@@ -543,7 +910,6 @@ ${chunks[i]}
         // =================================================
 
         try {
-
 
           console.log(
             `CALLING GROQ FOR PDF CHUNK ${i + 1}`
@@ -574,13 +940,8 @@ ${chunks[i]}
 
         catch (groqError) {
 
-
           console.error(
-            `GROQ CHUNK ${i + 1} FAILED:`
-          );
-
-
-          console.error(
+            `GROQ CHUNK ${i + 1} FAILED:`,
             groqError.message
           );
 
@@ -591,7 +952,6 @@ ${chunks[i]}
 
 
           try {
-
 
             const geminiAnswer =
               await callGemini(
@@ -610,16 +970,10 @@ ${chunks[i]}
 
           }
 
-
           catch (geminiError) {
 
-
             console.error(
-              `GEMINI CHUNK ${i + 1} FAILED:`
-            );
-
-
-            console.error(
+              `GEMINI CHUNK ${i + 1} FAILED:`,
               geminiError.message
             );
 
@@ -636,7 +990,7 @@ ${chunks[i]}
 
 
       // =================================================
-      // ALL CHUNKS COMPLETED
+      // COMBINE CHUNKS
       // =================================================
 
       console.log(
@@ -651,7 +1005,7 @@ ${chunks[i]}
 
 
       // =================================================
-      // FINAL SYNTHESIS PROMPT
+      // FINAL SYNTHESIS
       // =================================================
 
       const finalPrompt = `
@@ -663,11 +1017,9 @@ parts of the SAME research paper.
 
 Create ONE final coherent academic answer.
 
-
 REQUESTED TASK:
 
 ${instruction}
-
 
 IMPORTANT RULES:
 
@@ -682,11 +1034,9 @@ IMPORTANT RULES:
 9. Use clear academic headings and bullet points.
 10. Clearly distinguish author-stated information from reasonable inference where relevant.
 
-
 PART-WISE ANALYSIS:
 
 ${combinedAnalysis}
-
 
 ${
   question
@@ -700,18 +1050,16 @@ ${question}
     : ""
 }
 
-
 Provide the final academic answer now.
 
 `;
 
 
       // =================================================
-      // FINAL GROQ SYNTHESIS
+      // FINAL GROQ
       // =================================================
 
       try {
-
 
         console.log(
           "CALLING GROQ FOR FINAL PDF SYNTHESIS"
@@ -751,13 +1099,8 @@ Provide the final academic answer now.
 
       catch (finalGroqError) {
 
-
         console.error(
-          "FINAL GROQ SYNTHESIS FAILED:"
-        );
-
-
-        console.error(
+          "FINAL GROQ SYNTHESIS FAILED:",
           finalGroqError.message
         );
 
@@ -768,7 +1111,6 @@ Provide the final academic answer now.
 
 
         try {
-
 
           const finalAnswer =
             await callGemini(
@@ -796,16 +1138,10 @@ Provide the final academic answer now.
 
         }
 
-
         catch (finalGeminiError) {
 
-
           console.error(
-            "FINAL GEMINI SYNTHESIS FAILED:"
-          );
-
-
-          console.error(
+            "FINAL GEMINI SYNTHESIS FAILED:",
             finalGeminiError.message
           );
 
@@ -827,11 +1163,9 @@ Provide the final academic answer now.
 
     catch (error) {
 
-
       console.error(
         "PDF ANALYSIS ERROR:"
       );
-
 
       console.error(
         error
@@ -851,12 +1185,11 @@ Provide the final academic answer now.
     }
 
 
-    // ===================================================
+    // =================================================
     // CLEANUP
-    // ===================================================
+    // =================================================
 
     finally {
-
 
       // =================================================
       // DESTROY PDF PARSER
@@ -889,7 +1222,6 @@ Provide the final academic answer now.
       if (filePath) {
 
         try {
-
 
           if (
             fs.existsSync(
@@ -924,9 +1256,60 @@ Provide the final academic answer now.
 
 
 // =====================================================
+// 404 HANDLER
+// IMPORTANT: THIS MUST BE LAST
+// =====================================================
+
+app.use(
+  (req, res) => {
+
+    res.status(404).json({
+
+      error:
+        "API endpoint not found.",
+
+      path:
+        req.originalUrl
+
+    });
+
+  }
+);
+
+
+// =====================================================
+// GLOBAL ERROR HANDLER
+// =====================================================
+
+app.use(
+  (error, req, res, next) => {
+
+    console.error(
+      "GLOBAL SERVER ERROR:",
+      error
+    );
+
+
+    res.status(500).json({
+
+      error:
+        "Internal server error.",
+
+      details:
+        error.message
+
+    });
+
+  }
+);
+
+
+// =====================================================
 // START SERVER
 // =====================================================
-const PORT = process.env.PORT || 5000;
+
+const PORT =
+  process.env.PORT || 5000;
 
 
 console.log(
@@ -935,13 +1318,36 @@ console.log(
 
 
 app.listen(
-
   PORT,
-
+  "0.0.0.0",
   () => {
 
     console.log(
-      `SIRC AI server running on http://localhost:${PORT}`
+      "=========================================="
+    );
+
+    console.log(
+      "SIRC AI SERVER RUNNING"
+    );
+
+    console.log(
+      `PORT: ${PORT}`
+    );
+
+    console.log(
+      `LOCAL: http://localhost:${PORT}`
+    );
+
+    console.log(
+      `HEALTH: http://localhost:${PORT}/api/health`
+    );
+
+    console.log(
+      `CALIBRE: http://localhost:${PORT}/api/calibre/status`
+    );
+
+    console.log(
+      `RECOMMENDATIONS: http://localhost:${PORT}/api/research-recommendations?topic=anatomy`
     );
 
     console.log(
@@ -949,5 +1355,4 @@ app.listen(
     );
 
   }
-
 );
