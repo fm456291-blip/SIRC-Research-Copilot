@@ -4,10 +4,10 @@
 // GROQ → GEMINI FALLBACK
 // PDF RESEARCH ANALYSIS
 // CALIBRE INTEGRATION
+// USER AUTHENTICATION
 // =====================================================
 
 require("dotenv").config();
-
 
 // =====================================================
 // IMPORTS
@@ -18,6 +18,8 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const bcrypt = require("bcryptjs");
+const sqlite3 = require("sqlite3").verbose();
 
 const { PDFParse } = require("pdf-parse");
 
@@ -33,22 +35,34 @@ const {
   DB_PATH
 } = require("./calibre.cjs");
 
-
 // =====================================================
 // EXPRESS APP
 // =====================================================
 
 const app = express();
 
-
 // =====================================================
 // MIDDLEWARE
 // =====================================================
 
-app.use(cors());
+app.use(
+  cors({
+    origin: true,
+    credentials: false
+  })
+);
 
-app.use(express.json());
+app.use(
+  express.json({
+    limit: "2mb"
+  })
+);
 
+app.use(
+  express.urlencoded({
+    extended: true
+  })
+);
 
 // =====================================================
 // STARTUP INFORMATION
@@ -75,6 +89,73 @@ console.log(
 
 console.log("STEP 1: Server file started");
 
+// =====================================================
+// AUTH DATABASE
+// =====================================================
+
+const authDatabasePath =
+  path.join(__dirname, "auth.db");
+
+const authDB =
+  new sqlite3.Database(
+    authDatabasePath,
+    (error) => {
+
+      if (error) {
+
+        console.error(
+          "AUTH DATABASE CONNECTION ERROR:",
+          error.message
+        );
+
+      } else {
+
+        console.log(
+          "AUTH DATABASE CONNECTED:",
+          authDatabasePath
+        );
+
+      }
+
+    }
+  );
+
+// =====================================================
+// CREATE USERS TABLE
+// =====================================================
+
+authDB.serialize(() => {
+
+  authDB.run(
+    `
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+    `,
+    (error) => {
+
+      if (error) {
+
+        console.error(
+          "USERS TABLE ERROR:",
+          error.message
+        );
+
+      } else {
+
+        console.log(
+          "USERS TABLE READY"
+        );
+
+      }
+
+    }
+  );
+
+});
 
 // =====================================================
 // UPLOAD DIRECTORY
@@ -83,8 +164,11 @@ console.log("STEP 1: Server file started");
 const uploadDirectory =
   path.join(__dirname, "uploads");
 
-
-if (!fs.existsSync(uploadDirectory)) {
+if (
+  !fs.existsSync(
+    uploadDirectory
+  )
+) {
 
   fs.mkdirSync(
     uploadDirectory,
@@ -95,80 +179,578 @@ if (!fs.existsSync(uploadDirectory)) {
 
 }
 
-
 // =====================================================
 // FILE UPLOAD
 // =====================================================
 
-const upload = multer({
+const upload =
+  multer({
 
-  dest: uploadDirectory,
+    dest:
+      uploadDirectory,
 
-  limits: {
+    limits: {
 
-    fileSize:
-      20 * 1024 * 1024
-
-  }
-
-});
-
-
-// =====================================================
-// HOME / HEALTH CHECK
-// =====================================================
-
-app.get("/", (req, res) => {
-
-  res.json({
-
-    status: "online",
-
-    message:
-      "SIRC Research Copilot AI Server is running.",
-
-    service:
-      "SIRC Research Copilot",
-
-    ai: {
-
-      groq:
-        process.env.GROQ_API_KEY
-          ? "configured"
-          : "missing",
-
-      gemini:
-        process.env.GEMINI_API_KEY
-          ? "configured"
-          : "missing"
+      fileSize:
+        20 * 1024 * 1024
 
     }
 
   });
 
-});
+// =====================================================
+// HOME / HEALTH CHECK
+// =====================================================
 
+app.get(
+  "/",
+  (req, res) => {
+
+    return res.json({
+
+      status:
+        "online",
+
+      message:
+        "SIRC Research Copilot AI Server is running.",
+
+      service:
+        "SIRC Research Copilot",
+
+      ai: {
+
+        groq:
+          process.env.GROQ_API_KEY
+            ? "configured"
+            : "missing",
+
+        gemini:
+          process.env.GEMINI_API_KEY
+            ? "configured"
+            : "missing"
+
+      }
+
+    });
+
+  }
+);
 
 // =====================================================
 // SERVER HEALTH CHECK
 // =====================================================
 
-app.get("/api/health", (req, res) => {
+app.get(
+  "/api/health",
+  (req, res) => {
 
-  res.json({
+    return res.json({
 
-    status: "ok",
+      status:
+        "ok",
 
-    message:
-      "SIRC Research Copilot backend is healthy.",
+      message:
+        "SIRC Research Copilot backend is healthy.",
 
-    timestamp:
-      new Date().toISOString()
+      timestamp:
+        new Date().toISOString()
 
-  });
+    });
 
-});
+  }
+);
 
+// =====================================================
+// AUTH HEALTH CHECK
+// =====================================================
+
+app.get(
+  "/api/auth/health",
+  (req, res) => {
+
+    return res.json({
+
+      success:
+        true,
+
+      message:
+        "Authentication service is working."
+
+    });
+
+  }
+);
+
+// =====================================================
+// SIGNUP
+// =====================================================
+
+app.post(
+  "/api/signup",
+  async (req, res) => {
+
+    try {
+
+      const username =
+        typeof req.body.username === "string"
+          ? req.body.username.trim()
+          : "";
+
+      const password =
+        typeof req.body.password === "string"
+          ? req.body.password
+          : "";
+
+      // -------------------------------------------------
+      // VALIDATION
+      // -------------------------------------------------
+
+      if (!username) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username is required."
+
+        });
+
+      }
+
+      if (username.length < 3) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username must be at least 3 characters."
+
+        });
+
+      }
+
+      if (username.length > 50) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username must not exceed 50 characters."
+
+        });
+
+      }
+
+      if (!password) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Password is required."
+
+        });
+
+      }
+
+      if (password.length < 6) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Password must be at least 6 characters."
+
+        });
+
+      }
+
+      // -------------------------------------------------
+      // CHECK EXISTING USER
+      // -------------------------------------------------
+
+      authDB.get(
+        `
+        SELECT id, username
+        FROM users
+        WHERE username = ?
+        `,
+        [username],
+        async (findError, existingUser) => {
+
+          if (findError) {
+
+            console.error(
+              "SIGNUP USER CHECK ERROR:",
+              findError.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Unable to check user account."
+
+            });
+
+          }
+
+          if (existingUser) {
+
+            return res.status(409).json({
+
+              success:
+                false,
+
+              error:
+                "Username already exists. Please choose another username."
+
+            });
+
+          }
+
+          // -------------------------------------------------
+          // HASH PASSWORD
+          // -------------------------------------------------
+
+          try {
+
+            const hashedPassword =
+              await bcrypt.hash(
+                password,
+                10
+              );
+
+            const createdAt =
+              new Date().toISOString();
+
+            // -------------------------------------------------
+            // CREATE USER
+            // -------------------------------------------------
+
+            authDB.run(
+              `
+              INSERT INTO users
+              (
+                username,
+                password,
+                created_at
+              )
+              VALUES (?, ?, ?)
+              `,
+              [
+                username,
+                hashedPassword,
+                createdAt
+              ],
+              function (insertError) {
+
+                if (insertError) {
+
+                  console.error(
+                    "SIGNUP INSERT ERROR:",
+                    insertError.message
+                  );
+
+                  return res.status(500).json({
+
+                    success:
+                      false,
+
+                    error:
+                      "Unable to create account."
+
+                  });
+
+                }
+
+                console.log(
+                  "NEW USER CREATED:",
+                  username
+                );
+
+                return res.status(201).json({
+
+                  success:
+                    true,
+
+                  message:
+                    "Account created successfully.",
+
+                  userId:
+                    this.lastID,
+
+                  username:
+                    username
+
+                });
+
+              }
+            );
+
+          }
+
+          catch (hashError) {
+
+            console.error(
+              "PASSWORD HASH ERROR:",
+              hashError.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Unable to secure account password."
+
+            });
+
+          }
+
+        }
+      );
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "SIGNUP ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success:
+          false,
+
+        error:
+          "Signup service is currently unavailable."
+
+      });
+
+    }
+
+  }
+);
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+app.post(
+  "/api/login",
+  async (req, res) => {
+
+    try {
+
+      const username =
+        typeof req.body.username === "string"
+          ? req.body.username.trim()
+          : "";
+
+      const password =
+        typeof req.body.password === "string"
+          ? req.body.password
+          : "";
+
+      // -------------------------------------------------
+      // VALIDATION
+      // -------------------------------------------------
+
+      if (!username) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username is required."
+
+        });
+
+      }
+
+      if (!password) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Password is required."
+
+        });
+
+      }
+
+      // -------------------------------------------------
+      // FIND USER
+      // -------------------------------------------------
+
+      authDB.get(
+        `
+        SELECT
+          id,
+          username,
+          password
+        FROM users
+        WHERE username = ?
+        `,
+        [username],
+        async (error, user) => {
+
+          if (error) {
+
+            console.error(
+              "LOGIN DATABASE ERROR:",
+              error.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Unable to access authentication database."
+
+            });
+
+          }
+
+          // -------------------------------------------------
+          // USER NOT FOUND
+          // -------------------------------------------------
+
+          if (!user) {
+
+            return res.status(401).json({
+
+              success:
+                false,
+
+              error:
+                "Invalid username or password."
+
+            });
+
+          }
+
+          // -------------------------------------------------
+          // COMPARE PASSWORD
+          // -------------------------------------------------
+
+          try {
+
+            const passwordMatches =
+              await bcrypt.compare(
+                password,
+                user.password
+              );
+
+            if (!passwordMatches) {
+
+              return res.status(401).json({
+
+                success:
+                  false,
+
+                error:
+                  "Invalid username or password."
+
+              });
+
+            }
+
+            // -------------------------------------------------
+            // LOGIN SUCCESS
+            // -------------------------------------------------
+
+            console.log(
+              "USER LOGIN SUCCESS:",
+              user.username
+            );
+
+            return res.json({
+
+              success:
+                true,
+
+              message:
+                "Login successful.",
+
+              userId:
+                user.id,
+
+              username:
+                user.username
+
+            });
+
+          }
+
+          catch (compareError) {
+
+            console.error(
+              "PASSWORD CHECK ERROR:",
+              compareError.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Unable to verify password."
+
+            });
+
+          }
+
+        }
+      );
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "LOGIN ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success:
+          false,
+
+        error:
+          "Login service is currently unavailable."
+
+      });
+
+    }
+
+  }
+);
 
 // =====================================================
 // CALIBRE DATABASE STATUS
@@ -184,15 +766,12 @@ app.get(
         "CHECKING CALIBRE DATABASE..."
       );
 
-
       const books =
         await getAllCalibreBooks();
-
 
       console.log(
         `CALIBRE DATABASE CONNECTED - ${books.length} BOOKS`
       );
-
 
       return res.json({
 
@@ -216,7 +795,6 @@ app.get(
         error.message
       );
 
-
       return res.status(500).json({
 
         status:
@@ -235,7 +813,6 @@ app.get(
   }
 );
 
-
 // =====================================================
 // SEARCH CALIBRE BOOKS
 // =====================================================
@@ -248,7 +825,6 @@ app.get(
 
       const query =
         req.query.q;
-
 
       if (
         !query ||
@@ -263,7 +839,6 @@ app.get(
         });
 
       }
-
 
       console.log(
         "=========================================="
@@ -281,12 +856,10 @@ app.get(
         "=========================================="
       );
 
-
       const results =
         await searchCalibreBooks(
           query.trim()
         );
-
 
       return res.json({
 
@@ -309,7 +882,6 @@ app.get(
         error.message
       );
 
-
       return res.status(500).json({
 
         error:
@@ -325,13 +897,8 @@ app.get(
   }
 );
 
-
 // =====================================================
 // RESEARCH RESOURCE RECOMMENDATIONS
-// CALIBRE → RESEARCH TOPIC
-//
-// IMPORTANT:
-// THIS ROUTE MUST COME BEFORE THE 404 HANDLER.
 // =====================================================
 
 app.get(
@@ -342,11 +909,6 @@ app.get(
 
       const topic =
         req.query.topic;
-
-
-      // -------------------------------------------------
-      // CHECK TOPIC
-      // -------------------------------------------------
 
       if (
         !topic ||
@@ -365,10 +927,8 @@ app.get(
 
       }
 
-
       const cleanTopic =
         topic.trim();
-
 
       console.log(
         "=========================================="
@@ -383,26 +943,15 @@ app.get(
         "=========================================="
       );
 
-
-      // -------------------------------------------------
-      // SEARCH CALIBRE
-      // -------------------------------------------------
-
       const books =
         await searchCalibreBooks(
           cleanTopic
         );
 
-
       console.log(
         "CALIBRE RESOURCES FOUND:",
         books.length
       );
-
-
-      // -------------------------------------------------
-      // RESPONSE
-      // -------------------------------------------------
 
       return res.json({
 
@@ -429,7 +978,6 @@ app.get(
         error.message
       );
 
-
       return res.status(500).json({
 
         success:
@@ -448,10 +996,8 @@ app.get(
   }
 );
 
-
 // =====================================================
 // NORMAL AI CHAT
-// GROQ FIRST → GEMINI FALLBACK
 // =====================================================
 
 app.post(
@@ -463,11 +1009,6 @@ app.post(
       const {
         message
       } = req.body;
-
-
-      // =================================================
-      // CHECK MESSAGE
-      // =================================================
 
       if (
         !message ||
@@ -483,7 +1024,6 @@ app.post(
         });
 
       }
-
 
       console.log(
         "=========================================="
@@ -501,21 +1041,10 @@ app.post(
         "=========================================="
       );
 
-
-      // =================================================
-      // AI ROUTER
-      // GROQ → GEMINI FALLBACK
-      // =================================================
-
       const result =
         await askAI(
           message.trim()
         );
-
-
-      // =================================================
-      // LOG WHICH AI ANSWERED
-      // =================================================
 
       console.log(
         "=========================================="
@@ -529,11 +1058,6 @@ app.post(
       console.log(
         "=========================================="
       );
-
-
-      // =================================================
-      // RESPONSE
-      // =================================================
 
       return res.json({
 
@@ -561,7 +1085,6 @@ app.post(
         "==============================="
       );
 
-
       return res.status(500).json({
 
         error:
@@ -577,29 +1100,19 @@ app.post(
   }
 );
 
-
 // =====================================================
 // PDF ANALYSIS
 // =====================================================
 
 app.post(
-
   "/api/analyze-pdf",
-
   upload.single("file"),
-
   async (req, res) => {
 
     let filePath = null;
-
     let parser = null;
 
-
     try {
-
-      // =================================================
-      // CHECK FILE
-      // =================================================
 
       if (!req.file) {
 
@@ -612,10 +1125,8 @@ app.post(
 
       }
 
-
       filePath =
         req.file.path;
-
 
       console.log(
         "=========================================="
@@ -630,21 +1141,14 @@ app.post(
         "=========================================="
       );
 
-
-      // =================================================
-      // READ PDF
-      // =================================================
-
       const fileBuffer =
         fs.readFileSync(
           filePath
         );
 
-
       console.log(
         "Starting PDF text extraction..."
       );
-
 
       parser =
         new PDFParse({
@@ -654,23 +1158,15 @@ app.post(
 
         });
 
-
       const pdfData =
         await parser.getText();
-
 
       const extractedText =
         pdfData.text || "";
 
-
       console.log(
         `Extracted ${extractedText.length} characters.`
       );
-
-
-      // =================================================
-      // CHECK EXTRACTED TEXT
-      // =================================================
 
       if (
         !extractedText.trim()
@@ -685,24 +1181,13 @@ app.post(
 
       }
 
-
-      // =================================================
-      // ACTION
-      // =================================================
-
       const action =
         req.body.action ||
         "general";
 
-
       const question =
         req.body.question ||
         "";
-
-
-      // =================================================
-      // ACTION INSTRUCTIONS
-      // =================================================
 
       const actionInstructions = {
 
@@ -807,32 +1292,19 @@ Include:
 
       };
 
-
       const instruction =
         actionInstructions[action] ||
         actionInstructions.general;
-
-
-      // =================================================
-      // CLEAN PDF TEXT
-      // =================================================
 
       const cleanText =
         extractedText
           .replace(/\s+/g, " ")
           .trim();
 
-
-      // =================================================
-      // SMART CHUNKING
-      // =================================================
-
       const MAX_CHARS =
         24000;
 
-
       const chunks = [];
-
 
       for (
         let i = 0;
@@ -851,18 +1323,11 @@ Include:
 
       }
 
-
       console.log(
         `PDF divided into ${chunks.length} chunks`
       );
 
-
-      // =================================================
-      // PROCESS CHUNKS
-      // =================================================
-
       const chunkAnswers = [];
-
 
       for (
         let i = 0;
@@ -873,7 +1338,6 @@ Include:
         console.log(
           `PROCESSING PDF CHUNK ${i + 1}/${chunks.length}`
         );
-
 
         const chunkPrompt = `
 
@@ -904,39 +1368,26 @@ ${chunks[i]}
 
 `;
 
-
-        // =================================================
-        // GROQ FIRST
-        // =================================================
-
         try {
 
           console.log(
             `CALLING GROQ FOR PDF CHUNK ${i + 1}`
           );
 
-
           const chunkAnswer =
             await callGroq(
               chunkPrompt
             );
 
-
           chunkAnswers.push(
             chunkAnswer
           );
-
 
           console.log(
             `GROQ CHUNK ${i + 1} COMPLETED`
           );
 
         }
-
-
-        // =================================================
-        // GEMINI FALLBACK
-        // =================================================
 
         catch (groqError) {
 
@@ -945,11 +1396,9 @@ ${chunks[i]}
             groqError.message
           );
 
-
           console.log(
             `SWITCHING CHUNK ${i + 1} TO GEMINI`
           );
-
 
           try {
 
@@ -958,11 +1407,9 @@ ${chunks[i]}
                 chunkPrompt
               );
 
-
             chunkAnswers.push(
               geminiAnswer
             );
-
 
             console.log(
               `GEMINI CHUNK ${i + 1} COMPLETED`
@@ -977,7 +1424,6 @@ ${chunks[i]}
               geminiError.message
             );
 
-
             throw new Error(
               `Both AI services failed while processing PDF chunk ${i + 1}.`
             );
@@ -988,25 +1434,14 @@ ${chunks[i]}
 
       }
 
-
-      // =================================================
-      // COMBINE CHUNKS
-      // =================================================
-
       console.log(
         "ALL PDF CHUNKS PROCESSED"
       );
-
 
       const combinedAnalysis =
         chunkAnswers.join(
           "\n\n---\n\n"
         );
-
-
-      // =================================================
-      // FINAL SYNTHESIS
-      // =================================================
 
       const finalPrompt = `
 
@@ -1054,28 +1489,20 @@ Provide the final academic answer now.
 
 `;
 
-
-      // =================================================
-      // FINAL GROQ
-      // =================================================
-
       try {
 
         console.log(
           "CALLING GROQ FOR FINAL PDF SYNTHESIS"
         );
 
-
         const finalAnswer =
           await callGroq(
             finalPrompt
           );
 
-
         console.log(
           "GROQ FINAL PDF ANSWER CREATED"
         );
-
 
         return res.json({
 
@@ -1092,11 +1519,6 @@ Provide the final academic answer now.
 
       }
 
-
-      // =================================================
-      // FINAL GEMINI FALLBACK
-      // =================================================
-
       catch (finalGroqError) {
 
         console.error(
@@ -1104,11 +1526,9 @@ Provide the final academic answer now.
           finalGroqError.message
         );
 
-
         console.log(
           "SWITCHING FINAL SYNTHESIS TO GEMINI"
         );
-
 
         try {
 
@@ -1117,24 +1537,22 @@ Provide the final academic answer now.
               finalPrompt
             );
 
+            console.log(
+              "GEMINI FINAL PDF ANSWER CREATED"
+            );
 
-          console.log(
-            "GEMINI FINAL PDF ANSWER CREATED"
-          );
+            return res.json({
 
+              answer:
+                finalAnswer,
 
-          return res.json({
+              filename:
+                req.file.originalname,
 
-            answer:
-              finalAnswer,
+              source:
+                "gemini"
 
-            filename:
-              req.file.originalname,
-
-            source:
-              "gemini"
-
-          });
+            });
 
         }
 
@@ -1144,7 +1562,6 @@ Provide the final academic answer now.
             "FINAL GEMINI SYNTHESIS FAILED:",
             finalGeminiError.message
           );
-
 
           throw new Error(
             "Both AI services failed during final PDF synthesis."
@@ -1156,11 +1573,6 @@ Provide the final academic answer now.
 
     }
 
-
-    // ===================================================
-    // PDF ERROR
-    // ===================================================
-
     catch (error) {
 
       console.error(
@@ -1170,7 +1582,6 @@ Provide the final academic answer now.
       console.error(
         error
       );
-
 
       return res.status(500).json({
 
@@ -1184,16 +1595,7 @@ Provide the final academic answer now.
 
     }
 
-
-    // =================================================
-    // CLEANUP
-    // =================================================
-
     finally {
-
-      // =================================================
-      // DESTROY PDF PARSER
-      // =================================================
 
       if (parser) {
 
@@ -1213,11 +1615,6 @@ Provide the final academic answer now.
         }
 
       }
-
-
-      // =================================================
-      // DELETE TEMPORARY PDF
-      // =================================================
 
       if (filePath) {
 
@@ -1251,19 +1648,20 @@ Provide the final academic answer now.
     }
 
   }
-
 );
-
 
 // =====================================================
 // 404 HANDLER
-// IMPORTANT: THIS MUST BE LAST
+// MUST BE LAST
 // =====================================================
 
 app.use(
   (req, res) => {
 
-    res.status(404).json({
+    return res.status(404).json({
+
+      success:
+        false,
 
       error:
         "API endpoint not found.",
@@ -1275,7 +1673,6 @@ app.use(
 
   }
 );
-
 
 // =====================================================
 // GLOBAL ERROR HANDLER
@@ -1289,8 +1686,10 @@ app.use(
       error
     );
 
+    return res.status(500).json({
 
-    res.status(500).json({
+      success:
+        false,
 
       error:
         "Internal server error.",
@@ -1303,7 +1702,6 @@ app.use(
   }
 );
 
-
 // =====================================================
 // START SERVER
 // =====================================================
@@ -1311,11 +1709,9 @@ app.use(
 const PORT =
   process.env.PORT || 5000;
 
-
 console.log(
   "STEP 2: About to start server"
 );
-
 
 app.listen(
   PORT,
@@ -1340,6 +1736,10 @@ app.listen(
 
     console.log(
       `HEALTH: http://localhost:${PORT}/api/health`
+    );
+
+    console.log(
+      `AUTH HEALTH: http://localhost:${PORT}/api/auth/health`
     );
 
     console.log(
