@@ -19,8 +19,8 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
-const bcrypt = require("bcryptjs");
 const sqlite3 = require("sqlite3").verbose();
+const bcrypt = require("bcryptjs");
 
 const { PDFParse } = require("pdf-parse");
 
@@ -45,18 +45,37 @@ const app = express();
 
 
 // =====================================================
-// MIDDLEWARE
+// CORS
 // =====================================================
 
 app.use(
   cors({
     origin: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Accept", "Authorization"]
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "OPTIONS"
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Accept"
+    ]
   })
 );
 
-app.use(express.json());
+
+// =====================================================
+// BODY PARSER
+// =====================================================
+
+app.use(
+  express.json({
+    limit: "10mb"
+  })
+);
 
 
 // =====================================================
@@ -86,570 +105,168 @@ console.log("STEP 1: Server file started");
 
 
 // =====================================================
-// DATABASE DIRECTORY
+// AUTHENTICATION DATABASE
+// =====================================================
+//
+// Database location:
+//
+// Render:
+// /data/sirc_users.db
+//
+// Local:
+// ./data/sirc_users.db
+//
+// If /data exists, it will be used.
+// Otherwise local data folder will be used.
+//
 // =====================================================
 
-const dataDirectory =
-  path.join(__dirname, "data");
+const persistentDataDirectory =
+  fs.existsSync("/data")
+    ? "/data"
+    : path.join(__dirname, "data");
 
-if (!fs.existsSync(dataDirectory)) {
+
+if (
+  !fs.existsSync(
+    persistentDataDirectory
+  )
+) {
+
   fs.mkdirSync(
-    dataDirectory,
+    persistentDataDirectory,
     {
       recursive: true
     }
   );
+
 }
 
 
-// =====================================================
-// USER DATABASE
-// =====================================================
-
-const USER_DB_PATH =
+const AUTH_DB_PATH =
   path.join(
-    dataDirectory,
-    "users.db"
+    persistentDataDirectory,
+    "sirc_users.db"
   );
 
+
 console.log(
-  "USER DATABASE:",
-  USER_DB_PATH
+  "AUTH DATABASE:",
+  AUTH_DB_PATH
 );
 
 
-const userDB =
+// =====================================================
+// SQLITE DATABASE
+// =====================================================
+
+const authDB =
   new sqlite3.Database(
-    USER_DB_PATH,
+    AUTH_DB_PATH,
     (error) => {
 
       if (error) {
 
         console.error(
-          "USER DATABASE CONNECTION ERROR:",
+          "AUTH DATABASE CONNECTION ERROR:",
           error.message
         );
 
       } else {
 
         console.log(
-          "USER DATABASE CONNECTED"
+          "AUTH DATABASE CONNECTED"
         );
 
       }
 
     }
   );
+
+
+// =====================================================
+// ENABLE FOREIGN KEYS
+// =====================================================
+
+authDB.run(
+  "PRAGMA foreign_keys = ON"
+);
 
 
 // =====================================================
 // CREATE USERS TABLE
 // =====================================================
 
-userDB.serialize(() => {
+authDB.serialize(() => {
 
-  userDB.run(`
+  authDB.run(
+    `
     CREATE TABLE IF NOT EXISTS users (
+
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      created_at TEXT NOT NULL
+
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+
+      password_hash TEXT NOT NULL,
+
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      last_login TEXT
+
     )
-  `);
+    `,
+    (error) => {
+
+      if (error) {
+
+        console.error(
+          "USERS TABLE ERROR:",
+          error.message
+        );
+
+      } else {
+
+        console.log(
+          "USERS TABLE READY"
+        );
+
+      }
+
+    }
+  );
+
+
+  // ===================================================
+  // INDEX FOR FAST USERNAME SEARCH
+  // ===================================================
+
+  authDB.run(
+    `
+    CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_users_username
+    ON users(username COLLATE NOCASE)
+    `,
+    (error) => {
+
+      if (error) {
+
+        console.error(
+          "USER INDEX ERROR:",
+          error.message
+        );
+
+      } else {
+
+        console.log(
+          "USER INDEX READY"
+        );
+
+      }
+
+    }
+  );
 
 });
-
-
-// =====================================================
-// DATABASE HELPERS
-// =====================================================
-
-function findUser(username) {
-
-  return new Promise(
-    (resolve, reject) => {
-
-      userDB.get(
-        `
-        SELECT
-          id,
-          username,
-          password,
-          created_at
-        FROM users
-        WHERE username = ?
-        `,
-        [username],
-        (error, row) => {
-
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve(row || null);
-
-        }
-      );
-
-    }
-  );
-
-}
-
-
-function createUser(
-  username,
-  hashedPassword
-) {
-
-  return new Promise(
-    (resolve, reject) => {
-
-      userDB.run(
-        `
-        INSERT INTO users
-        (
-          username,
-          password,
-          created_at
-        )
-        VALUES
-        (?, ?, ?)
-        `,
-        [
-          username,
-          hashedPassword,
-          new Date().toISOString()
-        ],
-        function (error) {
-
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve({
-            id: this.lastID,
-            username
-          });
-
-        }
-      );
-
-    }
-  );
-
-}
-
-
-// =====================================================
-// AUTHENTICATION - SIGNUP
-// =====================================================
-
-app.post(
-  "/api/signup",
-  async (req, res) => {
-
-    try {
-
-      const {
-        username,
-        password
-      } = req.body || {};
-
-
-      // -------------------------------------------------
-      // VALIDATE USERNAME
-      // -------------------------------------------------
-
-      if (
-        typeof username !== "string" ||
-        !username.trim()
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Username is required."
-
-        });
-
-      }
-
-
-      // -------------------------------------------------
-      // VALIDATE PASSWORD
-      // -------------------------------------------------
-
-      if (
-        typeof password !== "string" ||
-        !password
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Password is required."
-
-        });
-
-      }
-
-
-      const cleanUsername =
-        username.trim().toLowerCase();
-
-
-      if (
-        cleanUsername.length < 3
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Username must contain at least 3 characters."
-
-        });
-
-      }
-
-
-      if (
-        password.length < 6
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Password must contain at least 6 characters."
-
-        });
-
-      }
-
-
-      console.log(
-        "=========================================="
-      );
-
-      console.log(
-        "SIGNUP REQUEST:",
-        cleanUsername
-      );
-
-      console.log(
-        "=========================================="
-      );
-
-
-      // -------------------------------------------------
-      // CHECK EXISTING USER
-      // -------------------------------------------------
-
-      const existingUser =
-        await findUser(
-          cleanUsername
-        );
-
-
-      if (existingUser) {
-
-        return res.status(409).json({
-
-          success: false,
-
-          error:
-            "Username already exists. Please login."
-
-        });
-
-      }
-
-
-      // -------------------------------------------------
-      // HASH PASSWORD
-      // -------------------------------------------------
-
-      const hashedPassword =
-        await bcrypt.hash(
-          password,
-          10
-        );
-
-
-      // -------------------------------------------------
-      // CREATE USER
-      // -------------------------------------------------
-
-      const newUser =
-        await createUser(
-          cleanUsername,
-          hashedPassword
-        );
-
-
-      console.log(
-        "USER CREATED:",
-        newUser.username
-      );
-
-
-      return res.status(201).json({
-
-        success: true,
-
-        message:
-          "Account created successfully.",
-
-        userId:
-          newUser.id,
-
-        username:
-          newUser.username
-
-      });
-
-    }
-
-    catch (error) {
-
-      console.error(
-        "SIGNUP ERROR:",
-        error
-      );
-
-
-      // SQLite duplicate username protection
-      if (
-        error &&
-        error.code === "SQLITE_CONSTRAINT"
-      ) {
-
-        return res.status(409).json({
-
-          success: false,
-
-          error:
-            "Username already exists. Please login."
-
-        });
-
-      }
-
-
-      return res.status(500).json({
-
-        success: false,
-
-        error:
-          "Unable to create account.",
-
-        details:
-          error.message
-
-      });
-
-    }
-
-  }
-);
-
-
-// =====================================================
-// AUTHENTICATION - LOGIN
-// =====================================================
-
-app.post(
-  "/api/login",
-  async (req, res) => {
-
-    try {
-
-      const {
-        username,
-        password
-      } = req.body || {};
-
-
-      // -------------------------------------------------
-      // VALIDATE USERNAME
-      // -------------------------------------------------
-
-      if (
-        typeof username !== "string" ||
-        !username.trim()
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Username is required."
-
-        });
-
-      }
-
-
-      // -------------------------------------------------
-      // VALIDATE PASSWORD
-      // -------------------------------------------------
-
-      if (
-        typeof password !== "string" ||
-        !password
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "Password is required."
-
-        });
-
-      }
-
-
-      const cleanUsername =
-        username.trim().toLowerCase();
-
-
-      console.log(
-        "=========================================="
-      );
-
-      console.log(
-        "LOGIN REQUEST:",
-        cleanUsername
-      );
-
-      console.log(
-        "=========================================="
-      );
-
-
-      // -------------------------------------------------
-      // FIND USER
-      // -------------------------------------------------
-
-      const user =
-        await findUser(
-          cleanUsername
-        );
-
-
-      if (!user) {
-
-        console.log(
-          "LOGIN FAILED: USER NOT FOUND"
-        );
-
-
-        return res.status(401).json({
-
-          success: false,
-
-          error:
-            "Invalid username or password."
-
-        });
-
-      }
-
-
-      // -------------------------------------------------
-      // CHECK PASSWORD
-      // -------------------------------------------------
-
-      const passwordMatches =
-        await bcrypt.compare(
-          password,
-          user.password
-        );
-
-
-      if (!passwordMatches) {
-
-        console.log(
-          "LOGIN FAILED: INVALID PASSWORD"
-        );
-
-
-        return res.status(401).json({
-
-          success: false,
-
-          error:
-            "Invalid username or password."
-
-        });
-
-      }
-
-
-      // -------------------------------------------------
-      // LOGIN SUCCESS
-      // -------------------------------------------------
-
-      console.log(
-        "LOGIN SUCCESS:",
-        user.username
-      );
-
-
-      return res.status(200).json({
-
-        success: true,
-
-        message:
-          "Login successful.",
-
-        userId:
-          user.id,
-
-        username:
-          user.username
-
-      });
-
-    }
-
-    catch (error) {
-
-      console.error(
-        "LOGIN ERROR:",
-        error
-      );
-
-
-      return res.status(500).json({
-
-        success: false,
-
-        error:
-          "Unable to process login.",
-
-        details:
-          error.message
-
-      });
-
-    }
-
-  }
-);
 
 
 // =====================================================
@@ -657,10 +274,17 @@ app.post(
 // =====================================================
 
 const uploadDirectory =
-  path.join(__dirname, "uploads");
+  path.join(
+    __dirname,
+    "uploads"
+  );
 
 
-if (!fs.existsSync(uploadDirectory)) {
+if (
+  !fs.existsSync(
+    uploadDirectory
+  )
+) {
 
   fs.mkdirSync(
     uploadDirectory,
@@ -676,19 +300,20 @@ if (!fs.existsSync(uploadDirectory)) {
 // FILE UPLOAD
 // =====================================================
 
-const upload = multer({
+const upload =
+  multer({
 
-  dest:
-    uploadDirectory,
+    dest:
+      uploadDirectory,
 
-  limits: {
+    limits: {
 
-    fileSize:
-      20 * 1024 * 1024
+      fileSize:
+        20 * 1024 * 1024
 
-  }
+    }
 
-});
+  });
 
 
 // =====================================================
@@ -710,9 +335,6 @@ app.get(
       service:
         "SIRC Research Copilot",
 
-      authentication:
-        "enabled",
-
       ai: {
 
         groq:
@@ -725,7 +347,10 @@ app.get(
             ? "configured"
             : "missing"
 
-      }
+      },
+
+      authentication:
+        "enabled"
 
     });
 
@@ -756,6 +381,577 @@ app.get(
         new Date().toISOString()
 
     });
+
+  }
+);
+
+
+// =====================================================
+// AUTH DATABASE HEALTH
+// =====================================================
+
+app.get(
+  "/api/auth/status",
+  (req, res) => {
+
+    authDB.get(
+      `
+      SELECT COUNT(*) AS total
+      FROM users
+      `,
+      [],
+      (error, row) => {
+
+        if (error) {
+
+          console.error(
+            "AUTH STATUS ERROR:",
+            error.message
+          );
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Authentication database is unavailable."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          authentication:
+            "ready",
+
+          totalUsers:
+            row.total
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
+// SIGN UP
+// =====================================================
+
+app.post(
+  "/api/signup",
+  async (req, res) => {
+
+    try {
+
+      const username =
+        typeof req.body.username === "string"
+          ? req.body.username.trim()
+          : "";
+
+      const password =
+        typeof req.body.password === "string"
+          ? req.body.password
+          : "";
+
+
+      // =================================================
+      // VALIDATION
+      // =================================================
+
+      if (!username) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username is required."
+
+        });
+
+      }
+
+
+      if (username.length < 3) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username must be at least 3 characters."
+
+        });
+
+      }
+
+
+      if (username.length > 50) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username must not exceed 50 characters."
+
+        });
+
+      }
+
+
+      if (!/^[a-zA-Z0-9._-]+$/.test(username)) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username can contain only letters, numbers, dot, underscore and hyphen."
+
+        });
+
+      }
+
+
+      if (!password) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Password is required."
+
+        });
+
+      }
+
+
+      if (password.length < 6) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Password must be at least 6 characters."
+
+        });
+
+      }
+
+
+      // =================================================
+      // CHECK EXISTING USER
+      // =================================================
+
+      authDB.get(
+        `
+        SELECT id
+        FROM users
+        WHERE username = ?
+        `,
+        [username],
+        async (checkError, existingUser) => {
+
+          if (checkError) {
+
+            console.error(
+              "SIGNUP CHECK ERROR:",
+              checkError.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Unable to check username."
+
+            });
+
+          }
+
+
+          if (existingUser) {
+
+            return res.status(409).json({
+
+              success:
+                false,
+
+              error:
+                "Username already exists. Please choose another username."
+
+            });
+
+          }
+
+
+          // =================================================
+          // HASH PASSWORD
+          // =================================================
+
+          const passwordHash =
+            await bcrypt.hash(
+              password,
+              12
+            );
+
+
+          // =================================================
+          // INSERT USER
+          // =================================================
+
+          authDB.run(
+            `
+            INSERT INTO users
+            (
+              username,
+              password_hash
+            )
+            VALUES
+            (
+              ?,
+              ?
+            )
+            `,
+            [
+              username,
+              passwordHash
+            ],
+            function (insertError) {
+
+              if (insertError) {
+
+                console.error(
+                  "SIGNUP INSERT ERROR:",
+                  insertError.message
+                );
+
+
+                if (
+                  insertError.message.includes(
+                    "UNIQUE"
+                  )
+                ) {
+
+                  return res.status(409).json({
+
+                    success:
+                      false,
+
+                    error:
+                      "Username already exists."
+
+                  });
+
+                }
+
+
+                return res.status(500).json({
+
+                  success:
+                    false,
+
+                  error:
+                    "Unable to create account."
+
+                });
+
+              }
+
+
+              console.log(
+                "NEW USER CREATED:",
+                username
+              );
+
+
+              return res.status(201).json({
+
+                success:
+                  true,
+
+                message:
+                  "Account created successfully.",
+
+                userId:
+                  this.lastID,
+
+                username:
+                  username
+
+              });
+
+            }
+          );
+
+        }
+      );
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "SIGNUP ERROR:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success:
+          false,
+
+        error:
+          "Unable to create account.",
+
+        details:
+          error.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+app.post(
+  "/api/login",
+  async (req, res) => {
+
+    try {
+
+      const username =
+        typeof req.body.username === "string"
+          ? req.body.username.trim()
+          : "";
+
+      const password =
+        typeof req.body.password === "string"
+          ? req.body.password
+          : "";
+
+
+      // =================================================
+      // VALIDATION
+      // =================================================
+
+      if (!username || !password) {
+
+        return res.status(400).json({
+
+          success:
+            false,
+
+          error:
+            "Username and password are required."
+
+        });
+
+      }
+
+
+      console.log(
+        "LOGIN ATTEMPT:",
+        username
+      );
+
+
+      // =================================================
+      // FIND USER
+      // =================================================
+
+      authDB.get(
+        `
+        SELECT
+          id,
+          username,
+          password_hash
+        FROM users
+        WHERE username = ?
+        `,
+        [username],
+        async (error, user) => {
+
+          if (error) {
+
+            console.error(
+              "LOGIN DATABASE ERROR:",
+              error.message
+            );
+
+            return res.status(500).json({
+
+              success:
+                false,
+
+              error:
+                "Authentication database error."
+
+            });
+
+          }
+
+
+          // =================================================
+          // USER NOT FOUND
+          // =================================================
+
+          if (!user) {
+
+            console.log(
+              "LOGIN FAILED - USER NOT FOUND:",
+              username
+            );
+
+            return res.status(401).json({
+
+              success:
+                false,
+
+              error:
+                "Invalid username or password."
+
+            });
+
+          }
+
+
+          // =================================================
+          // VERIFY PASSWORD
+          // =================================================
+
+          const passwordCorrect =
+            await bcrypt.compare(
+              password,
+              user.password_hash
+            );
+
+
+          if (!passwordCorrect) {
+
+            console.log(
+              "LOGIN FAILED - WRONG PASSWORD:",
+              username
+            );
+
+            return res.status(401).json({
+
+              success:
+                false,
+
+              error:
+                "Invalid username or password."
+
+            });
+
+          }
+
+
+          // =================================================
+          // UPDATE LAST LOGIN
+          // =================================================
+
+          authDB.run(
+            `
+            UPDATE users
+            SET last_login = CURRENT_TIMESTAMP
+            WHERE id = ?
+            `,
+            [user.id],
+            (updateError) => {
+
+              if (updateError) {
+
+                console.error(
+                  "LAST LOGIN UPDATE ERROR:",
+                  updateError.message
+                );
+
+              }
+
+            }
+          );
+
+
+          // =================================================
+          // SUCCESS
+          // =================================================
+
+          console.log(
+            "LOGIN SUCCESS:",
+            user.username
+          );
+
+
+          return res.json({
+
+            success:
+              true,
+
+            message:
+              "Login successful.",
+
+            userId:
+              user.id,
+
+            username:
+              user.username
+
+          });
+
+        }
+      );
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "LOGIN ERROR:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success:
+          false,
+
+        error:
+          "Unable to login.",
+
+        details:
+          error.message
+
+      });
+
+    }
 
   }
 );
@@ -1080,8 +1276,16 @@ app.post(
 
 
       console.log(
+        "=========================================="
+      );
+
+      console.log(
         "AI RESPONSE SOURCE:",
         result.source
+      );
+
+      console.log(
+        "=========================================="
       );
 
 
@@ -1138,7 +1342,9 @@ app.post(
   async (req, res) => {
 
     let filePath = null;
+
     let parser = null;
+
 
     try {
 
@@ -1358,10 +1564,12 @@ Include:
       ) {
 
         chunks.push(
+
           cleanText.substring(
             i,
             i + MAX_CHARS
           )
+
         );
 
       }
@@ -1815,11 +2023,7 @@ app.listen(
     );
 
     console.log(
-      `LOGIN: http://localhost:${PORT}/api/login`
-    );
-
-    console.log(
-      `SIGNUP: http://localhost:${PORT}/api/signup`
+      `AUTH STATUS: http://localhost:${PORT}/api/auth/status`
     );
 
     console.log(
