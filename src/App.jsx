@@ -2,49 +2,43 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./App.css";
-import Auth from './Auth'; // <--- Yeh login file import ki hai
 
 function App() {
-  // 1. Safe tareeqay se check karo ke user logged in hai ya nahi
-  const [user, setUser] = useState(() => {
-    try {
-      const savedUser = localStorage.getItem('sirc_user');
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-
-  // 2. AGAR USER LOGIN NAHI HAI: Toh sirf Login/Signup screen dikhao
-  if (!user) {
-    return <Auth setUser={setUser} />;
-  }
-
-  // 3. AGAR USER LOGIN HAI: Toh yeh saara dashboard render hoga
-  return <DashboardApp setUser={setUser} />;
-
-  const messagesEndRef = useRef(null);
+  // =====================================================
+  // API
+  // =====================================================
 
   const API_BASE_URL =
     "https://sirc-research-copilot-api.onrender.com";
 
-
   // =====================================================
-  // AUTO SCROLL
+  // STATE
   // =====================================================
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "end",
-    });
-  }, [
-    messages,
-    loading,
-    repositoryLoading,
-    repositoryResources,
-  ]);
+  const [messages, setMessages] = useState([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null);
+
+  const [showAbout, setShowAbout] = useState(false);
+
+  const [repositoryLoading, setRepositoryLoading] =
+    useState(false);
+
+  const [repositoryResources, setRepositoryResources] =
+    useState([]);
+
+  const [repositoryTopic, setRepositoryTopic] =
+    useState("");
+
+  const [repositoryError, setRepositoryError] =
+    useState("");
+
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // =====================================================
   // SIRC STAFF
@@ -215,15 +209,12 @@ function App() {
     },
   ];
 
-
   // =====================================================
   // BUILT-IN SIRC ANSWER ENGINE
   // =====================================================
 
   const getBuiltInAnswer = (question) => {
-
     const q = question.toLowerCase().trim();
-
 
     // ---------------------------------------------------
     // SIRC
@@ -257,7 +248,6 @@ SIRC focuses on:
 `;
     }
 
-
     // ---------------------------------------------------
     // HEAD
     // ---------------------------------------------------
@@ -288,7 +278,6 @@ She provides leadership for SIRC and supports:
 - Technology-driven library initiatives
 `;
     }
-
 
     // ---------------------------------------------------
     // STAFF
@@ -336,7 +325,6 @@ The Superior Information Resource Center has the following team members:
 `;
     }
 
-
     // ---------------------------------------------------
     // MARKETING
     // ---------------------------------------------------
@@ -364,7 +352,6 @@ She supports:
 - User engagement
 `;
     }
-
 
     // ---------------------------------------------------
     // TECHNICAL
@@ -395,7 +382,6 @@ Her responsibilities include:
 `;
     }
 
-
     // ---------------------------------------------------
     // KOHA
     // ---------------------------------------------------
@@ -415,7 +401,6 @@ Her responsibilities include:
 She works on library software, digital library management and research technology initiatives.
 `;
     }
-
 
     // ---------------------------------------------------
     // AI
@@ -440,7 +425,6 @@ SIRC also has the **SIRC Research Copilot**, an AI-powered research assistance i
 `;
     }
 
-
     // ---------------------------------------------------
     // RESEARCH SUPPORT
     // ---------------------------------------------------
@@ -460,19 +444,16 @@ Her work includes research technology initiatives, digital library management, K
 `;
     }
 
-
     // ---------------------------------------------------
     // INDIVIDUAL STAFF
     // ---------------------------------------------------
 
     for (const staff of sircStaff) {
-
       const found = staff.keywords.some((keyword) =>
         q.includes(keyword)
       );
 
       if (found) {
-
         return `
 ## ${staff.name}
 
@@ -483,17 +464,30 @@ ${staff.description}
       }
     }
 
-
     return null;
   };
 
+  // =====================================================
+  // AUTO SCROLL
+  // =====================================================
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [
+    messages,
+    loading,
+    repositoryLoading,
+    repositoryResources,
+  ]);
 
   // =====================================================
   // RESEARCH REPOSITORY SEARCH
   // =====================================================
 
   const searchResearchRepository = async (topic) => {
-
     if (!topic || !topic.trim()) {
       return [];
     }
@@ -502,7 +496,6 @@ ${staff.description}
     setRepositoryError("");
 
     try {
-
       const response = await fetch(
         `${API_BASE_URL}/api/research-recommendations?topic=${encodeURIComponent(
           topic.trim()
@@ -513,7 +506,8 @@ ${staff.description}
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Unable to search SIRC Research Repository."
+          data.error ||
+            "Unable to search SIRC Research Repository."
         );
       }
 
@@ -528,91 +522,119 @@ ${staff.description}
       setRepositoryResources(resources);
 
       return resources;
-
     } catch (error) {
-
       console.error(
         "Repository Search Error:",
         error
       );
 
       setRepositoryResources([]);
-
-      setRepositoryTopic(
-        topic.trim()
-      );
+      setRepositoryTopic(topic.trim());
 
       setRepositoryError(
         error.message ||
-        "Unable to search SIRC Research Repository."
+          "Unable to search SIRC Research Repository."
       );
 
       return [];
-
     } finally {
-
       setRepositoryLoading(false);
-
     }
   };
 
+  // =====================================================
+  // PDF ANALYSIS
+  // =====================================================
+
+  const analyzePDF = async (
+    file,
+    action = "general",
+    question = ""
+  ) => {
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("action", action);
+
+    if (question) {
+      formData.append("question", question);
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/analyze-pdf`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    let data;
+
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(
+        "Invalid response from server."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          "Unable to analyze PDF."
+      );
+    }
+
+    return (
+      data.answer ||
+      data.response ||
+      "I could not generate a response."
+    );
+  };
 
   // =====================================================
   // FILE UPLOAD
   // =====================================================
 
   const handleFileClick = () => {
-
     if (!loading) {
       fileInputRef.current?.click();
     }
   };
 
-
   const handleFileChange = (event) => {
-
     const file = event.target.files?.[0];
 
     if (!file) return;
 
-
     if (file.type !== "application/pdf") {
-
       alert(
         "Please upload a PDF document."
       );
 
       event.target.value = "";
-
       return;
     }
 
-
     if (file.size > 20 * 1024 * 1024) {
-
       alert(
         "The PDF must be smaller than 20 MB."
       );
 
       event.target.value = "";
-
       return;
     }
-
 
     setSelectedFile(file);
   };
 
-
   const removeFile = () => {
-
     setSelectedFile(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
-
 
   // =====================================================
   // COPY
@@ -622,195 +644,133 @@ ${staff.description}
     text,
     index
   ) => {
-
     try {
-
-      await navigator.clipboard.writeText(
-        text
-      );
+      await navigator.clipboard.writeText(text);
 
       setCopiedIndex(index);
 
       setTimeout(() => {
         setCopiedIndex(null);
       }, 1500);
-
     } catch (error) {
-
       console.error(
         "Copy failed:",
         error
       );
-
     }
   };
-
 
   // =====================================================
   // NORMAL AI CHAT
   // =====================================================
 
-  const sendNormalMessage = async (question) => {
-  // =====================================================
-  // STEP 1: CHECK BUILT-IN SIRC KNOWLEDGE
-  // =====================================================
+  const sendNormalMessage = async (
+    question
+  ) => {
+    // Built-in SIRC knowledge first
 
-  const builtInAnswer = getBuiltInAnswer(question);
+    const builtInAnswer =
+      getBuiltInAnswer(question);
 
-  if (builtInAnswer) {
-    return builtInAnswer;
-  }
-
-  // =====================================================
-  // STEP 2: GET NORMAL AI RESPONSE
-  // =====================================================
-
-  const response = await fetch(
-    "https://sirc-research-copilot-api.onrender.com/api/chat",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: question,
-      }),
+    if (builtInAnswer) {
+      return {
+        answer: builtInAnswer,
+        shouldSearchRepository: false,
+      };
     }
-  );
 
-  let data;
+    // AI API
 
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error("Invalid response from server.");
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data.error || "Unable to generate response."
-    );
-  }
-
-  let answer =
-    data.answer ||
-    "I could not generate a response.";
-
-  // =====================================================
-  // STEP 3: SEARCH SIRC RESEARCH REPOSITORY
-  // =====================================================
-
-  try {
-    /*
-      Send the user's question to the recommendation
-      endpoint.
-
-      The backend will determine the research topic
-      and search the Calibre/SIRC Research Repository.
-    */
-
-    const recommendationResponse = await fetch(
-      `https://sirc-research-copilot-api.onrender.com/api/research-recommendations?topic=${encodeURIComponent(
-        question
-      )}`
-    );
-
-    if (recommendationResponse.ok) {
-      const recommendationData =
-        await recommendationResponse.json();
-
-      console.log(
-        "SIRC Repository Recommendations:",
-        recommendationData
-      );
-
-      // =================================================
-      // STEP 4: CHECK IF RESOURCES WERE FOUND
-      // =================================================
-
-      if (
-        recommendationData.success &&
-        recommendationData.count > 0 &&
-        Array.isArray(recommendationData.resources)
-      ) {
-        let repositorySection = `
-
----
-
-## 📚 Available in SIRC Research Repository
-
-We found **${recommendationData.count} resources related to this topic in the SIRC Research Repository**.
-
-These resources are available in the **SIRC Research Repository** and may be useful for your research.
-
-`;
-
-        // Show maximum 10 resources
-        // so the answer does not become unnecessarily long.
-
-        const resourcesToShow =
-          recommendationData.resources.slice(0, 10);
-
-        resourcesToShow.forEach((resource, index) => {
-          const title =
-            resource.title ||
-            "Untitled Resource";
-
-          const authors =
-            resource.authors ||
-            "Author information not available";
-
-          repositorySection += `
-${index + 1}. **${title}**
-
-   **Author(s):** ${authors}
-
-`;
-        });
-
-        // If more than 10 resources exist
-        if (recommendationData.count > 10) {
-          repositorySection += `
-> **${recommendationData.count - 10} additional related resources** are also available in the SIRC Research Repository.
-`;
-        }
-
-        repositorySection += `
-
-**📖 Repository Note:**  
-The resources listed above are available in the **SIRC Research Repository**. You can use them as part of your further reading and research on this topic.
-`;
-
-        answer += repositorySection;
+    const response = await fetch(
+      `${API_BASE_URL}/api/chat`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          message: question,
+        }),
       }
-    }
-  } catch (repositoryError) {
-    /*
-      Repository failure should NOT break the normal AI
-      response.
-
-      The user will still receive the AI-generated answer.
-    */
-
-    console.warn(
-      "SIRC Research Repository search failed:",
-      repositoryError
     );
-  }
 
-  // =====================================================
-  // STEP 5: RETURN FINAL COMBINED RESPONSE
-  // =====================================================
+    let data;
 
-  return answer;
-};
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(
+        "Invalid response from server."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          "Unable to generate response."
+      );
+    }
+
+    let answer =
+      data.answer ||
+      data.response ||
+      "I could not generate a response.";
+
+    // Repository
+
+    try {
+      const recommendationResponse =
+        await fetch(
+          `${API_BASE_URL}/api/research-recommendations?topic=${encodeURIComponent(
+            question
+          )}`
+        );
+
+      if (recommendationResponse.ok) {
+        const recommendationData =
+          await recommendationResponse.json();
+
+        console.log(
+          "SIRC Repository Recommendations:",
+          recommendationData
+        );
+
+        if (
+          recommendationData.success &&
+          recommendationData.count > 0 &&
+          Array.isArray(
+            recommendationData.resources
+          )
+        ) {
+          setRepositoryTopic(
+            recommendationData.topic ||
+              question
+          );
+
+          setRepositoryResources(
+            recommendationData.resources
+          );
+        }
+      }
+    } catch (repositoryError) {
+      console.warn(
+        "SIRC Research Repository search failed:",
+        repositoryError
+      );
+    }
+
+    return {
+      answer,
+      shouldSearchRepository: false,
+    };
+  };
 
   // =====================================================
   // SEND MESSAGE
   // =====================================================
 
   const handleSend = async () => {
-
     if (
       loading ||
       (!message.trim() &&
@@ -819,53 +779,36 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
       return;
     }
 
-
     const currentMessage =
       message.trim();
 
     const currentFile =
       selectedFile;
 
-
     setRepositoryResources([]);
     setRepositoryTopic("");
     setRepositoryError("");
 
-
     setMessages((previous) => [
-
       ...previous,
-
       {
         type: "user",
-
         text:
           currentMessage ||
           "Please analyze this research paper.",
-
-        file:
-          currentFile
-            ? currentFile.name
-            : null,
+        file: currentFile
+          ? currentFile.name
+          : null,
       },
-
     ]);
 
-
     setMessage("");
-
     setLoading(true);
 
-
     try {
-
-
-      // =================================================
       // PDF
-      // =================================================
 
       if (currentFile) {
-
         const answer =
           await analyzePDF(
             currentFile,
@@ -873,21 +816,15 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             currentMessage
           );
 
-
         setMessages((previous) => [
-
           ...previous,
-
           {
             type: "assistant",
-
             text:
               answer ||
               "I could not generate a response.",
           },
-
         ]);
-
 
         setSelectedFile(null);
 
@@ -898,138 +835,83 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
         return;
       }
 
-
-      // =================================================
-      // AI RESPONSE
-      // =================================================
+      // Normal AI
 
       const result =
         await sendNormalMessage(
           currentMessage
         );
 
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
-
           text:
             result.answer ||
             "I could not generate a response.",
         },
-
       ]);
-
-
-      // =================================================
-      // REPOSITORY SEARCH
-      // =================================================
 
       if (
         result.shouldSearchRepository
       ) {
-
         await searchResearchRepository(
           currentMessage
         );
-
       }
-
-
     } catch (error) {
-
       console.error(
         "SIRC Copilot Error:",
         error
       );
 
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
-
           text:
             error.message ||
             "I could not process your request. Please try again.",
         },
-
       ]);
-
     } finally {
-
       setLoading(false);
-
     }
   };
-
 
   // =====================================================
   // NEW CHAT
   // =====================================================
 
   const handleNewChat = () => {
-
     setMessages([]);
-
     setMessage("");
-
     setSelectedFile(null);
-
     setLoading(false);
-
     setCopiedIndex(null);
 
     setRepositoryResources([]);
-
     setRepositoryTopic("");
-
     setRepositoryError("");
-
     setRepositoryLoading(false);
-
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-
-  // =====================================================
-  // LOGOUT
-  // =====================================================
-
-  const handleLogout = () => {
-
-    localStorage.removeItem(
-      "sirc_user"
-    );
-
-    setUser(null);
-  };
-
-
   // =====================================================
   // VOICE INPUT
   // =====================================================
 
   const handleVoiceInput = () => {
-
     if (loading) return;
-
 
     const SpeechRecognition =
       window.SpeechRecognition ||
       window.webkitSpeechRecognition;
 
-
     if (!SpeechRecognition) {
-
       alert(
         "Voice input is not supported in this browser. Please use Google Chrome or Microsoft Edge."
       );
@@ -1037,124 +919,88 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
       return;
     }
 
-
     if (isListening) {
       return;
     }
 
-
     const recognition =
       new SpeechRecognition();
 
-
-    recognition.lang =
-      "en-US";
-
-    recognition.continuous =
-      false;
-
-    recognition.interimResults =
-      false;
-
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
 
     recognition.onstart = () => {
-
       setIsListening(true);
-
     };
-
 
     recognition.onresult = (
       event
     ) => {
-
       const transcript =
         event.results[0][0]
           .transcript;
 
-
       setMessage((previous) => {
-
         const existing =
           previous.trim();
-
 
         if (!existing) {
           return transcript;
         }
 
-
         return `${existing} ${transcript}`;
-
       });
     };
-
 
     recognition.onerror = (
       event
     ) => {
-
       console.error(
         "Voice recognition error:",
         event.error
       );
 
-
       if (
         event.error ===
         "not-allowed"
       ) {
-
         alert(
           "Microphone permission was denied. Please allow microphone access."
         );
-
       } else if (
         event.error ===
         "no-speech"
       ) {
-
         alert(
           "No speech detected. Please try again."
         );
-
       } else {
-
         alert(
           "Voice input could not be started. Please try again."
         );
-
       }
 
-
       setIsListening(false);
     };
-
 
     recognition.onend = () => {
-
       setIsListening(false);
-
     };
-
 
     recognition.start();
   };
 
-
   // =====================================================
-  // SIDEBAR RESEARCH TOOLS
+  // SIDEBAR TOOLS
   // =====================================================
 
   const handleSidebarTool = async (
     tool
   ) => {
-
     if (loading) return;
 
-
     const prompts = {
-
       topic:
         "Help me develop a strong academic research topic. Suggest several research topics, explain why each topic is important, and identify possible research variables.",
 
@@ -1174,226 +1020,42 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
         "Help me with academic citation. Explain the appropriate citation style and provide examples of in-text citations and reference entries.",
     };
 
-
     const selectedPrompt =
       prompts[tool];
 
-
-    if (!selectedPrompt)
-      return;
-
+    if (!selectedPrompt) return;
 
     setLoading(true);
 
-
     try {
-
       const result =
         await sendNormalMessage(
           selectedPrompt
         );
 
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
           text:
             result.answer ||
             "I could not generate a response.",
         },
-
       ]);
-
-
     } catch (error) {
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
-
           text:
             error.message ||
             "I could not process this research tool request.",
         },
-
       ]);
-
     } finally {
-
       setLoading(false);
-
     }
   };
-  {/* =====================================================
-    SIRC RESEARCH REPOSITORY RECOMMENDATIONS
-===================================================== */}
-
-{repositoryLoading && (
-  <section className="repository-section">
-    <div className="repository-loading">
-      <span className="repository-spinner"></span>
-      <div>
-        <strong>Checking SIRC Research Repository...</strong>
-        <p>Finding relevant books and research resources.</p>
-      </div>
-    </div>
-  </section>
-)}
-
-{!repositoryLoading && repositoryResources.length > 0 && (
-  <section className="repository-section">
-
-    <div className="repository-header">
-
-      <div>
-        <span className="repository-label">
-          SIRC RESEARCH REPOSITORY
-        </span>
-
-        <h2>
-          Recommended Resources
-        </h2>
-
-        <p>
-          Relevant books and research resources available
-          in the SIRC Library for:
-          <strong> {repositoryTopic}</strong>
-        </p>
-      </div>
-
-    </div>
-
-    <div className="repository-notice">
-
-      <div className="repository-notice-icon">
-        📚
-      </div>
-
-      <div>
-        <strong>
-          Resources available in SIRC Library
-        </strong>
-
-        <p>
-          The following resources were found in the
-          SIRC Research Repository. For access or
-          availability details, please contact:
-        </p>
-
-        <a href="mailto:library@superior.edu.pk">
-          library@superior.edu.pk
-        </a>
-      </div>
-
-    </div>
-
-    <div className="repository-grid">
-
-      {repositoryResources.map((resource, index) => (
-
-        <div
-          className="repository-card"
-          key={resource.id || resource.title || index}
-        >
-
-          <div className="repository-card-icon">
-            📘
-          </div>
-
-          <div className="repository-card-content">
-
-            <span className="repository-resource-type">
-              {resource.type || "BOOK"}
-            </span>
-
-            <h3>
-              {resource.title || "Untitled Resource"}
-            </h3>
-
-            {resource.author && (
-              <p className="repository-author">
-                <strong>Author:</strong>{" "}
-                {resource.author}
-              </p>
-            )}
-
-            {resource.year && (
-              <p className="repository-year">
-                <strong>Year:</strong>{" "}
-                {resource.year}
-              </p>
-            )}
-
-            {resource.subject && (
-              <p className="repository-subject">
-                <strong>Subject:</strong>{" "}
-                {resource.subject}
-              </p>
-            )}
-
-            <div className="repository-availability">
-              ✓ Available in SIRC Library
-            </div>
-
-          </div>
-
-        </div>
-
-      ))}
-
-    </div>
-
-    <div className="repository-footer">
-
-      <span>
-        Need access to these resources?
-      </span>
-
-      <a href="mailto:library@superior.edu.pk">
-        Email SIRC Library — library@superior.edu.pk
-      </a>
-
-    </div>
-
-  </section>
-)}
-
-{!repositoryLoading &&
- repositoryResources.length === 0 &&
- repositoryTopic &&
- repositoryError && (
-
-  <section className="repository-section repository-error">
-
-    <div className="repository-error-icon">
-      !
-    </div>
-
-    <div>
-      <strong>
-        SIRC Research Repository
-      </strong>
-
-      <p>
-        We could not check the SIRC repository at
-        the moment. Please try again later or contact
-        the library.
-      </p>
-
-      <a href="mailto:library@superior.edu.pk">
-        library@superior.edu.pk
-      </a>
-    </div>
-
-  </section>
-)}
-
 
   // =====================================================
   // DOCUMENT ACTIONS
@@ -1402,7 +1064,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
   const handleDocumentAction = async (
     action
   ) => {
-
     if (
       !selectedFile ||
       loading
@@ -1410,9 +1071,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
       return;
     }
 
-
     const actionNames = {
-
       summarize:
         "Summarize Paper",
 
@@ -1430,92 +1089,62 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
       questions:
         "Generate Research Questions",
-
     };
-
 
     const actionName =
       actionNames[action] ||
       "Analyze Document";
 
-
     const currentFile =
       selectedFile;
 
-
     setMessages((previous) => [
-
       ...previous,
-
       {
         type: "user",
-
         text: actionName,
-
-        file:
-          currentFile.name,
+        file: currentFile.name,
       },
-
     ]);
-
 
     setLoading(true);
 
-
     try {
-
       const answer =
         await analyzePDF(
           currentFile,
           action
         );
 
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
-
           text:
             answer ||
             "No response was generated.",
         },
-
       ]);
-
 
       setSelectedFile(null);
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-
-
     } catch (error) {
-
       setMessages((previous) => [
-
         ...previous,
-
         {
           type: "assistant",
-
           text:
             error.message ||
             "I could not analyze this PDF.",
         },
-
       ]);
-
     } finally {
-
       setLoading(false);
-
     }
   };
-
 
   // =====================================================
   // ENTER
@@ -1524,35 +1153,27 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
   const handleKeyDown = (
     event
   ) => {
-
     if (
       event.key === "Enter" &&
       !event.shiftKey
     ) {
-
       event.preventDefault();
-
       handleSend();
-
     }
   };
-
 
   // =====================================================
   // UI
   // =====================================================
 
   return (
-
     <div className="app">
-
 
       {/* =================================================
           SIDEBAR
       ================================================= */}
 
       <aside className="sidebar">
-
 
         <div className="brand">
 
@@ -1561,19 +1182,13 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
           </div>
 
           <div>
-
-            <h2>
-              SIRC
-            </h2>
-
+            <h2>SIRC</h2>
             <span>
               Research Copilot
             </span>
-
           </div>
 
         </div>
-
 
         <button
           className="new-chat"
@@ -1582,13 +1197,11 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
           + New Research Chat
         </button>
 
-
         <div className="sidebar-section">
 
           <p>
             Research Tools
           </p>
-
 
           <button
             onClick={() =>
@@ -1600,7 +1213,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             🔎 Research Topic
           </button>
 
-
           <button
             onClick={() =>
               handleSidebarTool(
@@ -1610,7 +1222,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
           >
             🧠 Research Questions
           </button>
-
 
           <button
             onClick={() =>
@@ -1622,7 +1233,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             🔤 Keywords & Synonyms
           </button>
 
-
           <button
             onClick={() =>
               handleSidebarTool(
@@ -1633,7 +1243,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             🔗 Boolean Search
           </button>
 
-
           <button
             onClick={() =>
               handleSidebarTool(
@@ -1643,7 +1252,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
           >
             📚 Database Guide
           </button>
-
 
           <button
             onClick={() =>
@@ -1657,7 +1265,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
         </div>
 
-
         <div className="sidebar-bottom">
 
           <button
@@ -1670,7 +1277,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             ⚙ Settings
           </button>
 
-
           <button
             onClick={() =>
               setShowAbout(true)
@@ -1679,24 +1285,15 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
             💡 About SIRC
           </button>
 
-
-          <button
-            onClick={handleLogout}
-          >
-            🚪 Logout
-          </button>
-
         </div>
 
       </aside>
-
 
       {/* =================================================
           MAIN
       ================================================= */}
 
       <main className="main">
-
 
         {/* TOPBAR */}
 
@@ -1712,7 +1309,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
           </div>
 
-
           <div className="topbar-right">
 
             <div className="developer-credit">
@@ -1727,7 +1323,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
             </div>
 
-
             <button
               className="about-button"
               onClick={() =>
@@ -1740,7 +1335,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
           </div>
 
         </header>
-
 
         {/* =================================================
             WELCOME
@@ -1764,9 +1358,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
               you need it.
             </p>
 
-
             <div className="quick-tools">
-
 
               <button
                 className="tool-card"
@@ -1776,10 +1368,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   )
                 }
               >
-
-                <span>
-                  🔎
-                </span>
+                <span>🔎</span>
 
                 <h3>
                   Research Topics
@@ -1788,9 +1377,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 <p>
                   Develop and refine research ideas.
                 </p>
-
               </button>
-
 
               <button
                 className="tool-card"
@@ -1800,10 +1387,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   )
                 }
               >
-
-                <span>
-                  🔤
-                </span>
+                <span>🔤</span>
 
                 <h3>
                   Keywords
@@ -1812,9 +1396,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 <p>
                   Find keywords and useful synonyms.
                 </p>
-
               </button>
-
 
               <button
                 className="tool-card"
@@ -1824,10 +1406,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   )
                 }
               >
-
-                <span>
-                  🔗
-                </span>
+                <span>🔗</span>
 
                 <h3>
                   Boolean Search
@@ -1836,9 +1415,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 <p>
                   Create powerful database searches.
                 </p>
-
               </button>
-
 
               <button
                 className="tool-card"
@@ -1848,10 +1425,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   )
                 }
               >
-
-                <span>
-                  📚
-                </span>
+                <span>📚</span>
 
                 <h3>
                   Database Guide
@@ -1860,16 +1434,12 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 <p>
                   Find the right database for your topic.
                 </p>
-
               </button>
-
 
             </div>
 
           </section>
-
         )}
-
 
         {/* =================================================
             CHAT MESSAGES
@@ -1878,7 +1448,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
         {messages.length > 0 && (
 
           <section className="messages">
-
 
             {messages.map(
               (item, index) => (
@@ -1889,7 +1458,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 >
 
                   <div className="message">
-
 
                     {item.text && (
 
@@ -1907,18 +1475,13 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                     )}
 
-
                     {item.file && (
 
                       <div className="uploaded-file">
-
-                        📄{" "}
-                        {item.file}
-
+                        📄 {item.file}
                       </div>
 
                     )}
-
 
                     {item.type ===
                       "assistant" &&
@@ -1935,12 +1498,10 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                               )
                             }
                           >
-
                             {copiedIndex ===
                             index
                               ? "✓ Copied"
                               : "Copy"}
-
                           </button>
 
                         </div>
@@ -1953,7 +1514,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
               )
             )}
-
 
             {/* =================================================
                 REPOSITORY RESULTS
@@ -1999,13 +1559,11 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
             )}
 
-
             {!repositoryLoading &&
               repositoryResources.length >
                 0 && (
 
                 <div className="repository-section">
-
 
                   <div className="repository-header">
 
@@ -2020,7 +1578,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                       </h3>
 
                       <p>
-
                         We found{" "}
                         <strong>
                           {repositoryResources.length}
@@ -2031,18 +1588,15 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                           ? "s"
                           : ""}{" "}
                         related to{" "}
-
                         <strong>
                           {repositoryTopic}
                         </strong>{" "}
                         in the SIRC Research Repository.
-
                       </p>
 
                     </div>
 
                   </div>
-
 
                   <div className="repository-notice">
 
@@ -2061,9 +1615,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                         resources, please contact SIRC Library
                         at{" "}
 
-                        <a
-                          href="mailto:library@superior.edu.pk"
-                        >
+                        <a href="mailto:library@superior.edu.pk">
                           library@superior.edu.pk
                         </a>
 
@@ -2073,12 +1625,13 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                   </div>
 
-
                   <div className="repository-resource-list">
 
-
                     {repositoryResources.map(
-                      (resource, resourceIndex) => (
+                      (
+                        resource,
+                        resourceIndex
+                      ) => (
 
                         <div
                           className="repository-resource"
@@ -2092,16 +1645,12 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                             {resourceIndex + 1}
                           </div>
 
-
                           <div className="resource-content">
 
                             <h4>
-
                               {resource.title ||
                                 "Untitled Resource"}
-
                             </h4>
-
 
                             {resource.authors && (
 
@@ -2123,7 +1672,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                             )}
 
-
                             {resource.publisher && (
 
                               <p className="resource-meta">
@@ -2137,7 +1685,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                               </p>
 
                             )}
-
 
                             {resource.year && (
 
@@ -2155,11 +1702,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                           </div>
 
-
                           <div className="resource-badge">
-
                             SIRC Library
-
                           </div>
 
                         </div>
@@ -2169,7 +1713,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                   </div>
 
-
                   <div className="repository-footer">
 
                     <span>
@@ -2178,9 +1721,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
                     <span>
                       Need access?{" "}
-                      <a
-                        href="mailto:library@superior.edu.pk"
-                      >
+                      <a href="mailto:library@superior.edu.pk">
                         library@superior.edu.pk
                       </a>
                     </span>
@@ -2191,32 +1732,28 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
               )}
 
+            {repositoryError && (
 
-            {!repositoryLoading &&
-              repositoryError && (
+              <div className="repository-error">
 
-                <div className="repository-error">
+                <strong>
+                  SIRC Research Repository
+                </strong>
 
-                  <strong>
-                    SIRC Research Repository
-                  </strong>
+                <p>
+                  Repository search could not be
+                  completed at the moment.
+                </p>
 
-                  <p>
-                    Repository search could not be
-                    completed at the moment.
-                  </p>
+              </div>
 
-                </div>
-
-              )}
-
+            )}
 
             <div ref={messagesEndRef} />
 
           </section>
 
         )}
-
 
         {/* =================================================
             DOCUMENT ACTIONS
@@ -2227,14 +1764,12 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
             <div className="document-actions">
 
-
               <div className="document-actions-header">
 
                 <div className="document-info">
 
                   <strong>
-                    📄{" "}
-                    {selectedFile.name}
+                    📄 {selectedFile.name}
                   </strong>
 
                   <span>
@@ -2243,7 +1778,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   </span>
 
                 </div>
-
 
                 <button
                   type="button"
@@ -2255,9 +1789,7 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
               </div>
 
-
               <div className="document-action-grid">
-
 
                 <button
                   onClick={() =>
@@ -2266,13 +1798,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    📝
-                  </span>
+                  <span>📝</span>
 
                   <div>
-
                     <strong>
                       Summarize Paper
                     </strong>
@@ -2280,11 +1808,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Get the main points
                     </small>
-
                   </div>
-
                 </button>
-
 
                 <button
                   onClick={() =>
@@ -2293,13 +1818,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    🔎
-                  </span>
+                  <span>🔎</span>
 
                   <div>
-
                     <strong>
                       Find Research Gap
                     </strong>
@@ -2307,11 +1828,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Identify possible gaps
                     </small>
-
                   </div>
-
                 </button>
-
 
                 <button
                   onClick={() =>
@@ -2320,13 +1838,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    🎯
-                  </span>
+                  <span>🎯</span>
 
                   <div>
-
                     <strong>
                       Extract Objectives
                     </strong>
@@ -2334,11 +1848,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Find research objectives
                     </small>
-
                   </div>
-
                 </button>
-
 
                 <button
                   onClick={() =>
@@ -2347,13 +1858,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    🧪
-                  </span>
+                  <span>🧪</span>
 
                   <div>
-
                     <strong>
                       Explain Methodology
                     </strong>
@@ -2361,11 +1868,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Understand the methods
                     </small>
-
                   </div>
-
                 </button>
-
 
                 <button
                   onClick={() =>
@@ -2374,13 +1878,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    📊
-                  </span>
+                  <span>📊</span>
 
                   <div>
-
                     <strong>
                       Key Findings
                     </strong>
@@ -2388,11 +1888,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Extract important findings
                     </small>
-
                   </div>
-
                 </button>
-
 
                 <button
                   onClick={() =>
@@ -2401,13 +1898,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     )
                   }
                 >
-
-                  <span>
-                    💡
-                  </span>
+                  <span>💡</span>
 
                   <div>
-
                     <strong>
                       Generate Questions
                     </strong>
@@ -2415,11 +1908,8 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     <small>
                       Create research questions
                     </small>
-
                   </div>
-
                 </button>
-
 
               </div>
 
@@ -2427,16 +1917,13 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
           )}
 
-
         {/* =================================================
             CHAT INPUT
         ================================================= */}
 
         <section className="chat-area">
 
-
           <div className="input-wrapper">
-
 
             <textarea
               value={message}
@@ -2457,12 +1944,9 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
               disabled={loading}
             />
 
-
             <div className="input-actions">
 
-
               <div className="left-actions">
-
 
                 <button
                   type="button"
@@ -2475,7 +1959,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                   📎
                 </button>
 
-
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2487,7 +1970,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     display: "none",
                   }}
                 />
-
 
                 <button
                   type="button"
@@ -2509,16 +1991,12 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                       : ""
                   }
                 >
-
                   {isListening
                     ? "🔴"
                     : "🎤"}
-
                 </button>
 
-
               </div>
-
 
               <button
                 type="button"
@@ -2532,30 +2010,24 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                     !selectedFile)
                 }
               >
-
                 {loading
                   ? "..."
                   : "➤"}
-
               </button>
 
             </div>
 
           </div>
 
-
           <p className="disclaimer">
-
             SIRC Research Copilot is designed to support
             research and information discovery. Always verify
             important academic information.
-
           </p>
 
         </section>
 
       </main>
-
 
       {/* =================================================
           ABOUT MODAL
@@ -2586,7 +2058,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
               ×
             </button>
 
-
             <div className="about-hero">
 
               <div className="about-brand-icon">
@@ -2613,55 +2084,35 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
             </div>
 
-
             <div className="about-stats">
 
               <div className="about-stat">
-                <strong>
-                  12
-                </strong>
-                <span>
-                  Team Members
-                </span>
+                <strong>12</strong>
+                <span>Team Members</span>
               </div>
 
               <div className="about-stat">
-                <strong>
-                  1
-                </strong>
-                <span>
-                  Central Library
-                </span>
+                <strong>1</strong>
+                <span>Central Library</span>
               </div>
 
               <div className="about-stat">
-                <strong>
-                  24/7
-                </strong>
-                <span>
-                  Research Support
-                </span>
+                <strong>24/7</strong>
+                <span>Research Support</span>
               </div>
 
               <div className="about-stat">
-                <strong>
-                  AI
-                </strong>
-                <span>
-                  Research Innovation
-                </span>
+                <strong>AI</strong>
+                <span>Research Innovation</span>
               </div>
 
             </div>
-
 
             <section className="about-section">
 
               <div className="section-heading">
 
-                <span>
-                  01
-                </span>
+                <span>01</span>
 
                 <div>
 
@@ -2677,42 +2128,33 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
               </div>
 
-
               <div className="about-description">
 
                 <p>
-
                   The{" "}
-
                   <strong>
                     Superior Information Resource Center
                     (SIRC)
                   </strong>{" "}
-
                   is dedicated to providing students,
                   faculty and researchers with quality
                   information resources, modern library
                   services and technology-driven research
                   support.
-
                 </p>
 
-
                 <p>
-
                   SIRC is continuously moving beyond the
                   traditional concept of a library by
                   introducing digital services, research
                   support, technology solutions, user
                   engagement activities and innovative
                   information services.
-
                 </p>
 
               </div>
 
             </section>
-
 
             <section className="copilot-about">
 
@@ -2731,14 +2173,11 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
                 </h2>
 
                 <p>
-
                   An AI-powered research assistance tool
                   developed as a technology initiative of
                   SIRC to support students and researchers
                   throughout their academic research journey.
-
                 </p>
-
 
                 <div className="copilot-features">
 
@@ -2788,7 +2227,6 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
 
             </section>
 
-
             <div className="about-footer">
 
               <strong>
@@ -2811,6 +2249,5 @@ The resources listed above are available in the **SIRC Research Repository**. Yo
     </div>
   );
 }
-
 
 export default App;
