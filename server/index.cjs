@@ -5,6 +5,8 @@
 // PDF RESEARCH ANALYSIS
 // CALIBRE INTEGRATION
 // USER AUTHENTICATION
+// USER SEARCH HISTORY
+// SECURE LOGIN SESSIONS
 // =====================================================
 
 require("dotenv").config();
@@ -21,6 +23,7 @@ const fs = require("fs");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const { PDFParse } = require("pdf-parse");
 
@@ -105,20 +108,7 @@ console.log("STEP 1: Server file started");
 
 
 // =====================================================
-// AUTHENTICATION DATABASE
-// =====================================================
-//
-// Database location:
-//
-// Render:
-// /data/sirc_users.db
-//
-// Local:
-// ./data/sirc_users.db
-//
-// If /data exists, it will be used.
-// Otherwise local data folder will be used.
-//
+// PERSISTENT DATA DIRECTORY
 // =====================================================
 
 const persistentDataDirectory =
@@ -143,6 +133,10 @@ if (
 }
 
 
+// =====================================================
+// AUTH DATABASE
+// =====================================================
+
 const AUTH_DB_PATH =
   path.join(
     persistentDataDirectory,
@@ -157,7 +151,7 @@ console.log(
 
 
 // =====================================================
-// SQLITE DATABASE
+// SQLITE CONNECTION
 // =====================================================
 
 const authDB =
@@ -185,7 +179,7 @@ const authDB =
 
 
 // =====================================================
-// ENABLE FOREIGN KEYS
+// FOREIGN KEYS
 // =====================================================
 
 authDB.run(
@@ -194,13 +188,17 @@ authDB.run(
 
 
 // =====================================================
-// CREATE USERS TABLE
+// CREATE DATABASE TABLES
 // =====================================================
 
 authDB.serialize(() => {
 
-  authDB.run(
-    `
+
+  // ===================================================
+  // USERS
+  // ===================================================
+
+  authDB.run(`
     CREATE TABLE IF NOT EXISTS users (
 
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,56 +212,100 @@ authDB.serialize(() => {
       last_login TEXT
 
     )
-    `,
-    (error) => {
-
-      if (error) {
-
-        console.error(
-          "USERS TABLE ERROR:",
-          error.message
-        );
-
-      } else {
-
-        console.log(
-          "USERS TABLE READY"
-        );
-
-      }
-
-    }
-  );
+  `);
 
 
   // ===================================================
-  // INDEX FOR FAST USERNAME SEARCH
+  // SESSIONS
   // ===================================================
 
-  authDB.run(
-    `
+  authDB.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      user_id INTEGER NOT NULL,
+
+      token_hash TEXT NOT NULL UNIQUE,
+
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      last_used TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      expires_at TEXT NOT NULL,
+
+      FOREIGN KEY(user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+
+    )
+  `);
+
+
+  // ===================================================
+  // SEARCH HISTORY
+  // ===================================================
+
+  authDB.run(`
+    CREATE TABLE IF NOT EXISTS search_history (
+
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+      user_id INTEGER NOT NULL,
+
+      query TEXT NOT NULL,
+
+      response TEXT NOT NULL,
+
+      type TEXT NOT NULL DEFAULT 'chat',
+
+      source TEXT,
+
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      FOREIGN KEY(user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+
+    )
+  `);
+
+
+  // ===================================================
+  // USERNAME INDEX
+  // ===================================================
+
+  authDB.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS
     idx_users_username
     ON users(username COLLATE NOCASE)
-    `,
-    (error) => {
+  `);
 
-      if (error) {
 
-        console.error(
-          "USER INDEX ERROR:",
-          error.message
-        );
+  // ===================================================
+  // SESSION TOKEN INDEX
+  // ===================================================
 
-      } else {
+  authDB.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_sessions_token
+    ON sessions(token_hash)
+  `);
 
-        console.log(
-          "USER INDEX READY"
-        );
 
-      }
+  // ===================================================
+  // HISTORY USER INDEX
+  // ===================================================
 
-    }
+  authDB.run(`
+    CREATE INDEX IF NOT EXISTS
+    idx_history_user
+    ON search_history(user_id, created_at DESC)
+  `);
+
+
+  console.log(
+    "DATABASE TABLES READY"
   );
 
 });
@@ -317,6 +359,303 @@ const upload =
 
 
 // =====================================================
+// SESSION HELPERS
+// =====================================================
+
+function createSessionToken() {
+
+  return crypto.randomBytes(32).toString("hex");
+
+}
+
+
+function hashToken(token) {
+
+  return crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+
+}
+
+
+// =====================================================
+// AUTH MIDDLEWARE
+// =====================================================
+
+function requireAuth(req, res, next) {
+
+  try {
+
+    const authHeader =
+      req.headers.authorization || "";
+
+
+    if (
+      !authHeader.startsWith("Bearer ")
+    ) {
+
+      return res.status(401).json({
+
+        success:
+          false,
+
+        error:
+          "Authentication required."
+
+      });
+
+    }
+
+
+    const token =
+      authHeader
+        .substring(7)
+        .trim();
+
+
+    if (!token) {
+
+      return res.status(401).json({
+
+        success:
+          false,
+
+        error:
+          "Authentication token is missing."
+
+      });
+
+    }
+
+
+    const tokenHash =
+      hashToken(token);
+
+
+    authDB.get(
+      `
+      SELECT
+
+        sessions.user_id,
+
+        users.username,
+
+        sessions.expires_at
+
+      FROM sessions
+
+      INNER JOIN users
+        ON users.id = sessions.user_id
+
+      WHERE sessions.token_hash = ?
+
+      `,
+      [tokenHash],
+      (error, session) => {
+
+        if (error) {
+
+          console.error(
+            "SESSION CHECK ERROR:",
+            error.message
+          );
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Authentication database error."
+
+          });
+
+        }
+
+
+        if (!session) {
+
+          return res.status(401).json({
+
+            success:
+              false,
+
+            error:
+              "Invalid authentication session."
+
+          });
+
+        }
+
+
+        const expiry =
+          new Date(
+            session.expires_at
+          ).getTime();
+
+
+        if (
+          Date.now() >= expiry
+        ) {
+
+          authDB.run(
+            `
+            DELETE FROM sessions
+            WHERE token_hash = ?
+            `,
+            [tokenHash]
+          );
+
+
+          return res.status(401).json({
+
+            success:
+              false,
+
+            error:
+              "Your session has expired. Please login again."
+
+          });
+
+        }
+
+
+        // Update last used time
+
+        authDB.run(
+          `
+          UPDATE sessions
+          SET last_used = CURRENT_TIMESTAMP
+          WHERE token_hash = ?
+          `,
+          [tokenHash]
+        );
+
+
+        req.user = {
+
+          id:
+            session.user_id,
+
+          username:
+            session.username
+
+        };
+
+
+        next();
+
+      }
+    );
+
+  }
+
+  catch (error) {
+
+    console.error(
+      "AUTH MIDDLEWARE ERROR:",
+      error
+    );
+
+
+    return res.status(401).json({
+
+      success:
+        false,
+
+      error:
+        "Authentication failed."
+
+    });
+
+  }
+
+}
+
+
+// =====================================================
+// SAVE SEARCH HISTORY
+// =====================================================
+
+function saveHistory(
+  userId,
+  query,
+  response,
+  type = "chat",
+  source = null
+) {
+
+  return new Promise(
+    (resolve, reject) => {
+
+      authDB.run(
+        `
+        INSERT INTO search_history
+        (
+          user_id,
+          query,
+          response,
+          type,
+          source
+        )
+
+        VALUES
+        (
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        )
+        `,
+        [
+          userId,
+          query,
+          response,
+          type,
+          source
+        ],
+        function (error) {
+
+          if (error) {
+
+            console.error(
+              "HISTORY SAVE ERROR:",
+              error.message
+            );
+
+            reject(error);
+
+            return;
+
+          }
+
+
+          console.log(
+            "HISTORY SAVED:",
+            {
+              userId,
+              historyId: this.lastID,
+              type
+            }
+          );
+
+
+          resolve(
+            this.lastID
+          );
+
+        }
+      );
+
+    }
+  );
+
+}
+
+
+// =====================================================
 // HOME / HEALTH CHECK
 // =====================================================
 
@@ -350,6 +689,9 @@ app.get(
       },
 
       authentication:
+        "enabled",
+
+      history:
         "enabled"
 
     });
@@ -359,7 +701,7 @@ app.get(
 
 
 // =====================================================
-// SERVER HEALTH CHECK
+// SERVER HEALTH
 // =====================================================
 
 app.get(
@@ -375,6 +717,9 @@ app.get(
         "SIRC Research Copilot backend is healthy.",
 
       authentication:
+        "enabled",
+
+      history:
         "enabled",
 
       timestamp:
@@ -462,10 +807,6 @@ app.post(
           ? req.body.password
           : "";
 
-
-      // =================================================
-      // VALIDATION
-      // =================================================
 
       if (!username) {
 
@@ -557,10 +898,6 @@ app.post(
       }
 
 
-      // =================================================
-      // CHECK EXISTING USER
-      // =================================================
-
       authDB.get(
         `
         SELECT id
@@ -605,20 +942,12 @@ app.post(
           }
 
 
-          // =================================================
-          // HASH PASSWORD
-          // =================================================
-
           const passwordHash =
             await bcrypt.hash(
               password,
               12
             );
 
-
-          // =================================================
-          // INSERT USER
-          // =================================================
 
           authDB.run(
             `
@@ -757,10 +1086,6 @@ app.post(
           : "";
 
 
-      // =================================================
-      // VALIDATION
-      // =================================================
-
       if (!username || !password) {
 
         return res.status(400).json({
@@ -781,10 +1106,6 @@ app.post(
         username
       );
 
-
-      // =================================================
-      // FIND USER
-      // =================================================
 
       authDB.get(
         `
@@ -818,16 +1139,7 @@ app.post(
           }
 
 
-          // =================================================
-          // USER NOT FOUND
-          // =================================================
-
           if (!user) {
-
-            console.log(
-              "LOGIN FAILED - USER NOT FOUND:",
-              username
-            );
 
             return res.status(401).json({
 
@@ -841,10 +1153,6 @@ app.post(
 
           }
 
-
-          // =================================================
-          // VERIFY PASSWORD
-          // =================================================
 
           const passwordCorrect =
             await bcrypt.compare(
@@ -855,11 +1163,6 @@ app.post(
 
           if (!passwordCorrect) {
 
-            console.log(
-              "LOGIN FAILED - WRONG PASSWORD:",
-              username
-            );
-
             return res.status(401).json({
 
               success:
@@ -874,56 +1177,111 @@ app.post(
 
 
           // =================================================
-          // UPDATE LAST LOGIN
+          // CREATE SECURE SESSION
           // =================================================
+
+          const sessionToken =
+            createSessionToken();
+
+
+          const tokenHash =
+            hashToken(
+              sessionToken
+            );
+
+
+          // Session valid for 30 days
+
+          const expiresAt =
+            new Date(
+              Date.now() +
+              30 * 24 * 60 * 60 * 1000
+            ).toISOString();
+
 
           authDB.run(
             `
-            UPDATE users
-            SET last_login = CURRENT_TIMESTAMP
-            WHERE id = ?
+            INSERT INTO sessions
+            (
+              user_id,
+              token_hash,
+              expires_at
+            )
+            VALUES
+            (
+              ?,
+              ?,
+              ?
+            )
             `,
-            [user.id],
-            (updateError) => {
+            [
+              user.id,
+              tokenHash,
+              expiresAt
+            ],
+            (sessionError) => {
 
-              if (updateError) {
+              if (sessionError) {
 
                 console.error(
-                  "LAST LOGIN UPDATE ERROR:",
-                  updateError.message
+                  "SESSION CREATION ERROR:",
+                  sessionError.message
                 );
+
+                return res.status(500).json({
+
+                  success:
+                    false,
+
+                  error:
+                    "Unable to create login session."
+
+                });
 
               }
 
+
+              // =================================================
+              // UPDATE LAST LOGIN
+              // =================================================
+
+              authDB.run(
+                `
+                UPDATE users
+                SET last_login = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
+                [user.id]
+              );
+
+
+              console.log(
+                "LOGIN SUCCESS:",
+                user.username
+              );
+
+
+              return res.json({
+
+                success:
+                  true,
+
+                message:
+                  "Login successful.",
+
+                userId:
+                  user.id,
+
+                username:
+                  user.username,
+
+                token:
+                  sessionToken
+
+              });
+
             }
           );
-
-
-          // =================================================
-          // SUCCESS
-          // =================================================
-
-          console.log(
-            "LOGIN SUCCESS:",
-            user.username
-          );
-
-
-          return res.json({
-
-            success:
-              true,
-
-            message:
-              "Login successful.",
-
-            userId:
-              user.id,
-
-            username:
-              user.username
-
-          });
 
         }
       );
@@ -958,6 +1316,435 @@ app.post(
 
 
 // =====================================================
+// LOGOUT
+// =====================================================
+
+app.post(
+  "/api/logout",
+  requireAuth,
+  (req, res) => {
+
+    const authHeader =
+      req.headers.authorization || "";
+
+    const token =
+      authHeader
+        .substring(7)
+        .trim();
+
+    const tokenHash =
+      hashToken(token);
+
+
+    authDB.run(
+      `
+      DELETE FROM sessions
+      WHERE token_hash = ?
+      `,
+      [tokenHash],
+      (error) => {
+
+        if (error) {
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Unable to logout."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          message:
+            "Logged out successfully."
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
+// CURRENT USER
+// =====================================================
+
+app.get(
+  "/api/me",
+  requireAuth,
+  (req, res) => {
+
+    return res.json({
+
+      success:
+        true,
+
+      user: {
+
+        id:
+          req.user.id,
+
+        username:
+          req.user.username
+
+      }
+
+    });
+
+  }
+);
+
+
+// =====================================================
+// GET USER SEARCH HISTORY
+// =====================================================
+
+app.get(
+  "/api/history",
+  requireAuth,
+  (req, res) => {
+
+    const limit =
+      Math.min(
+        parseInt(req.query.limit) || 50,
+        200
+      );
+
+
+    authDB.all(
+      `
+      SELECT
+
+        id,
+
+        query,
+
+        response,
+
+        type,
+
+        source,
+
+        created_at
+
+      FROM search_history
+
+      WHERE user_id = ?
+
+      ORDER BY created_at DESC
+
+      LIMIT ?
+
+      `,
+      [
+        req.user.id,
+        limit
+      ],
+      (error, rows) => {
+
+        if (error) {
+
+          console.error(
+            "HISTORY FETCH ERROR:",
+            error.message
+          );
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Unable to load search history."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          history:
+            rows
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
+// GET ONE HISTORY ITEM
+// =====================================================
+
+app.get(
+  "/api/history/:id",
+  requireAuth,
+  (req, res) => {
+
+    const historyId =
+      parseInt(req.params.id);
+
+
+    if (
+      !Number.isInteger(historyId)
+    ) {
+
+      return res.status(400).json({
+
+        success:
+          false,
+
+        error:
+          "Invalid history ID."
+
+      });
+
+    }
+
+
+    authDB.get(
+      `
+      SELECT
+
+        id,
+
+        query,
+
+        response,
+
+        type,
+
+        source,
+
+        created_at
+
+      FROM search_history
+
+      WHERE id = ?
+
+      AND user_id = ?
+
+      `,
+      [
+        historyId,
+        req.user.id
+      ],
+      (error, row) => {
+
+        if (error) {
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Unable to load history item."
+
+          });
+
+        }
+
+
+        if (!row) {
+
+          return res.status(404).json({
+
+            success:
+              false,
+
+            error:
+              "History item not found."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          history:
+            row
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
+// DELETE ONE HISTORY ITEM
+// =====================================================
+
+app.delete(
+  "/api/history/:id",
+  requireAuth,
+  (req, res) => {
+
+    const historyId =
+      parseInt(req.params.id);
+
+
+    if (
+      !Number.isInteger(historyId)
+    ) {
+
+      return res.status(400).json({
+
+        success:
+          false,
+
+        error:
+          "Invalid history ID."
+
+      });
+
+    }
+
+
+    authDB.run(
+      `
+      DELETE FROM search_history
+
+      WHERE id = ?
+
+      AND user_id = ?
+
+      `,
+      [
+        historyId,
+        req.user.id
+      ],
+      function (error) {
+
+        if (error) {
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Unable to delete history."
+
+          });
+
+        }
+
+
+        if (
+          this.changes === 0
+        ) {
+
+          return res.status(404).json({
+
+            success:
+              false,
+
+            error:
+              "History item not found."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          message:
+            "History item deleted."
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
+// DELETE ALL USER HISTORY
+// =====================================================
+
+app.delete(
+  "/api/history",
+  requireAuth,
+  (req, res) => {
+
+    authDB.run(
+      `
+      DELETE FROM search_history
+
+      WHERE user_id = ?
+
+      `,
+      [req.user.id],
+      function (error) {
+
+        if (error) {
+
+          return res.status(500).json({
+
+            success:
+              false,
+
+            error:
+              "Unable to clear search history."
+
+          });
+
+        }
+
+
+        return res.json({
+
+          success:
+            true,
+
+          message:
+            "Search history cleared.",
+
+          deleted:
+            this.changes
+
+        });
+
+      }
+    );
+
+  }
+);
+
+
+// =====================================================
 // CALIBRE DATABASE STATUS
 // =====================================================
 
@@ -967,18 +1754,8 @@ app.get(
 
     try {
 
-      console.log(
-        "CHECKING CALIBRE DATABASE..."
-      );
-
-
       const books =
         await getAllCalibreBooks();
-
-
-      console.log(
-        `CALIBRE DATABASE CONNECTED - ${books.length} BOOKS`
-      );
 
 
       return res.json({
@@ -1050,23 +1827,6 @@ app.get(
         });
 
       }
-
-
-      console.log(
-        "=========================================="
-      );
-
-      console.log(
-        "CALIBRE SEARCH:"
-      );
-
-      console.log(
-        query
-      );
-
-      console.log(
-        "=========================================="
-      );
 
 
       const results =
@@ -1149,30 +1909,10 @@ app.get(
         topic.trim();
 
 
-      console.log(
-        "=========================================="
-      );
-
-      console.log(
-        "RESEARCH RESOURCE SEARCH:",
-        cleanTopic
-      );
-
-      console.log(
-        "=========================================="
-      );
-
-
       const books =
         await searchCalibreBooks(
           cleanTopic
         );
-
-
-      console.log(
-        "CALIBRE RESOURCES FOUND:",
-        books.length
-      );
 
 
       return res.json({
@@ -1227,6 +1967,7 @@ app.get(
 
 app.post(
   "/api/chat",
+  requireAuth,
   async (req, res) => {
 
     try {
@@ -1252,41 +1993,61 @@ app.post(
       }
 
 
-      console.log(
-        "=========================================="
-      );
+      const cleanMessage =
+        message.trim();
+
 
       console.log(
-        "NEW AI QUESTION:"
-      );
-
-      console.log(
-        message
-      );
-
-      console.log(
-        "=========================================="
+        "NEW AI QUESTION:",
+        cleanMessage
       );
 
 
       const result =
         await askAI(
-          message.trim()
+          cleanMessage
         );
 
-
-      console.log(
-        "=========================================="
-      );
 
       console.log(
         "AI RESPONSE SOURCE:",
         result.source
       );
 
-      console.log(
-        "=========================================="
-      );
+
+      // =================================================
+      // SAVE QUESTION + RESPONSE
+      // =================================================
+
+      try {
+
+        await saveHistory(
+
+          req.user.id,
+
+          cleanMessage,
+
+          result.answer,
+
+          "chat",
+
+          result.source
+
+        );
+
+      }
+
+      catch (historyError) {
+
+        // History failure should NOT
+        // break the AI response.
+
+        console.error(
+          "WARNING: HISTORY WAS NOT SAVED:",
+          historyError.message
+        );
+
+      }
 
 
       return res.json({
@@ -1304,15 +2065,8 @@ app.post(
     catch (error) {
 
       console.error(
-        "========== AI FAILED =========="
-      );
-
-      console.error(
+        "AI FAILED:",
         error
-      );
-
-      console.error(
-        "==============================="
       );
 
 
@@ -1338,6 +2092,7 @@ app.post(
 
 app.post(
   "/api/analyze-pdf",
+  requireAuth,
   upload.single("file"),
   async (req, res) => {
 
@@ -1365,16 +2120,8 @@ app.post(
 
 
       console.log(
-        "=========================================="
-      );
-
-      console.log(
         "PDF RECEIVED:",
         req.file.originalname
-      );
-
-      console.log(
-        "=========================================="
       );
 
 
@@ -1382,11 +2129,6 @@ app.post(
         fs.readFileSync(
           filePath
         );
-
-
-      console.log(
-        "Starting PDF text extraction..."
-      );
 
 
       parser =
@@ -1404,11 +2146,6 @@ app.post(
 
       const extractedText =
         pdfData.text || "";
-
-
-      console.log(
-        `Extracted ${extractedText.length} characters.`
-      );
 
 
       if (
@@ -1626,11 +2363,6 @@ ${chunks[i]}
 
         try {
 
-          console.log(
-            `CALLING GROQ FOR PDF CHUNK ${i + 1}`
-          );
-
-
           const chunkAnswer =
             await callGroq(
               chunkPrompt
@@ -1639,11 +2371,6 @@ ${chunks[i]}
 
           chunkAnswers.push(
             chunkAnswer
-          );
-
-
-          console.log(
-            `GROQ CHUNK ${i + 1} COMPLETED`
           );
 
         }
@@ -1656,52 +2383,19 @@ ${chunks[i]}
           );
 
 
-          console.log(
-            `SWITCHING CHUNK ${i + 1} TO GEMINI`
+          const geminiAnswer =
+            await callGemini(
+              chunkPrompt
+            );
+
+
+          chunkAnswers.push(
+            geminiAnswer
           );
-
-
-          try {
-
-            const geminiAnswer =
-              await callGemini(
-                chunkPrompt
-              );
-
-
-            chunkAnswers.push(
-              geminiAnswer
-            );
-
-
-            console.log(
-              `GEMINI CHUNK ${i + 1} COMPLETED`
-            );
-
-          }
-
-          catch (geminiError) {
-
-            console.error(
-              `GEMINI CHUNK ${i + 1} FAILED:`,
-              geminiError.message
-            );
-
-
-            throw new Error(
-              `Both AI services failed while processing PDF chunk ${i + 1}.`
-            );
-
-          }
 
         }
 
       }
-
-
-      console.log(
-        "ALL PDF CHUNKS PROCESSED"
-      );
 
 
       const combinedAnalysis =
@@ -1757,36 +2451,19 @@ Provide the final academic answer now.
 `;
 
 
+      let finalAnswer;
+      let finalSource;
+
+
       try {
 
-        console.log(
-          "CALLING GROQ FOR FINAL PDF SYNTHESIS"
-        );
-
-
-        const finalAnswer =
+        finalAnswer =
           await callGroq(
             finalPrompt
           );
 
-
-        console.log(
-          "GROQ FINAL PDF ANSWER CREATED"
-        );
-
-
-        return res.json({
-
-          answer:
-            finalAnswer,
-
-          filename:
-            req.file.originalname,
-
-          source:
-            "groq"
-
-        });
+        finalSource =
+          "groq";
 
       }
 
@@ -1798,64 +2475,74 @@ Provide the final academic answer now.
         );
 
 
-        console.log(
-          "SWITCHING FINAL SYNTHESIS TO GEMINI"
-        );
-
-
-        try {
-
-          const finalAnswer =
-            await callGemini(
-              finalPrompt
-            );
-
-
-          console.log(
-            "GEMINI FINAL PDF ANSWER CREATED"
+        finalAnswer =
+          await callGemini(
+            finalPrompt
           );
 
-
-          return res.json({
-
-            answer:
-              finalAnswer,
-
-            filename:
-              req.file.originalname,
-
-            source:
-              "gemini"
-
-          });
-
-        }
-
-        catch (finalGeminiError) {
-
-          console.error(
-            "FINAL GEMINI SYNTHESIS FAILED:",
-            finalGeminiError.message
-          );
-
-
-          throw new Error(
-            "Both AI services failed during final PDF synthesis."
-          );
-
-        }
+        finalSource =
+          "gemini";
 
       }
+
+
+      // =================================================
+      // SAVE PDF QUERY + ANSWER ONLY
+      // =================================================
+
+      const historyQuery =
+        question.trim()
+          ? question.trim()
+          : `PDF Analysis: ${action}`;
+
+
+      try {
+
+        await saveHistory(
+
+          req.user.id,
+
+          historyQuery,
+
+          finalAnswer,
+
+          "pdf",
+
+          finalSource
+
+        );
+
+      }
+
+      catch (historyError) {
+
+        console.error(
+          "WARNING: PDF HISTORY WAS NOT SAVED:",
+          historyError.message
+        );
+
+      }
+
+
+      return res.json({
+
+        answer:
+          finalAnswer,
+
+        filename:
+          req.file.originalname,
+
+        source:
+          finalSource
+
+      });
 
     }
 
     catch (error) {
 
       console.error(
-        "PDF ANALYSIS ERROR:"
-      );
-
-      console.error(
+        "PDF ANALYSIS ERROR:",
         error
       );
 
@@ -1873,6 +2560,10 @@ Provide the final academic answer now.
     }
 
     finally {
+
+      // =================================================
+      // DESTROY PDF PARSER
+      // =================================================
 
       if (parser) {
 
@@ -1894,6 +2585,10 @@ Provide the final academic answer now.
       }
 
 
+      // =================================================
+      // DELETE TEMPORARY PDF
+      // =================================================
+
       if (filePath) {
 
         try {
@@ -1908,6 +2603,10 @@ Provide the final academic answer now.
               filePath
             );
 
+            console.log(
+              "TEMPORARY PDF DELETED"
+            );
+
           }
 
         }
@@ -1915,7 +2614,7 @@ Provide the final academic answer now.
         catch (cleanupError) {
 
           console.error(
-            "File cleanup error:",
+            "FILE CLEANUP ERROR:",
             cleanupError.message
           );
 
@@ -1931,7 +2630,6 @@ Provide the final academic answer now.
 
 // =====================================================
 // 404 HANDLER
-// MUST BE LAST
 // =====================================================
 
 app.use(
@@ -2027,11 +2725,11 @@ app.listen(
     );
 
     console.log(
-      `CALIBRE: http://localhost:${PORT}/api/calibre/status`
+      `HISTORY: http://localhost:${PORT}/api/history`
     );
 
     console.log(
-      `RECOMMENDATIONS: http://localhost:${PORT}/api/research-recommendations?topic=anatomy`
+      `CALIBRE: http://localhost:${PORT}/api/calibre/status`
     );
 
     console.log(
