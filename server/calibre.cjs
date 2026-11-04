@@ -1,5 +1,5 @@
 // =====================================================
-// SIRC RESEARCH COPILOT
+// SIRC RESEARCH TOOL
 // CALIBRE DATABASE CONNECTION
 // =====================================================
 

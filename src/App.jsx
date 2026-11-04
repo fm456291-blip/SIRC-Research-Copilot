@@ -9,7 +9,7 @@ function App() {
   // =====================================================
 
   const API_BASE_URL =
-    "https://sirc-research-copilot-api.onrender.com";
+    "https://sirc-research-tool-api.onrender.com";
 
   // =====================================================
   // STATE
@@ -421,7 +421,7 @@ SIRC has technology-focused roles including:
 - **Mr. Muhammad Usman** — Assistant Manager — Technical & AI
 - **Ms. Fizza Malik** — Executive — Technical & Research Support
 
-SIRC also has the **SIRC Research Copilot**, an AI-powered research assistance initiative designed to support students and researchers.
+SIRC also has the **SIRC Research tool**, an AI-powered research assistance initiative designed to support students and researchers.
 `;
     }
 
@@ -861,7 +861,7 @@ ${staff.description}
       }
     } catch (error) {
       console.error(
-        "SIRC Copilot Error:",
+        "SIRC Tool Error:",
         error
       );
 
@@ -1184,7 +1184,7 @@ ${staff.description}
           <div>
             <h2>SIRC</h2>
             <span>
-              Research Copilot
+              Research Tool
             </span>
           </div>
 
@@ -1304,7 +1304,7 @@ ${staff.description}
             <span className="status-dot"></span>
 
             <span>
-              SIRC Research Copilot
+              SIRC Research Tool
             </span>
 
           </div>
@@ -2020,7 +2020,7 @@ ${staff.description}
           </div>
 
           <p className="disclaimer">
-            SIRC Research Copilot is designed to support
+            SIRC Research Tool is designed to support
             research and information discovery. Always verify
             important academic information.
           </p>
@@ -2156,20 +2156,20 @@ ${staff.description}
 
             </section>
 
-            <section className="copilot-about">
+            <section className="tool-about">
 
-              <div className="copilot-icon">
+              <div className="tool-icon">
                 ✦
               </div>
 
-              <div className="copilot-content">
+              <div className="tool-content">
 
                 <span>
                   SIRC TECHNOLOGY INITIATIVE
                 </span>
 
                 <h2>
-                  SIRC Research Copilot
+                  SIRC Research tool
                 </h2>
 
                 <p>
@@ -2179,7 +2179,7 @@ ${staff.description}
                   throughout their academic research journey.
                 </p>
 
-                <div className="copilot-features">
+                <div className="tool-features">
 
                   <span>
                     Research Topics

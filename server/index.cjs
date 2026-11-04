@@ -1,5 +1,5 @@
 // =====================================================
-// SIRC RESEARCH COPILOT
+// SIRC RESEARCH tool
 // MAIN SERVER
 // GROQ → GEMINI FALLBACK
 // PDF RESEARCH ANALYSIS
@@ -86,7 +86,7 @@ app.use(
 // =====================================================
 
 console.log("==========================================");
-console.log("SIRC RESEARCH COPILOT");
+console.log("SIRC RESEARCH TOOL");
 console.log("==========================================");
 
 console.log(
@@ -669,10 +669,10 @@ app.get(
         "online",
 
       message:
-        "SIRC Research Copilot AI Server is running.",
+        "SIRC Research TOOL AI Server is running.",
 
       service:
-        "SIRC Research Copilot",
+        "SIRC Research TOOL",
 
       ai: {
 
@@ -714,7 +714,7 @@ app.get(
         "ok",
 
       message:
-        "SIRC Research Copilot backend is healthy.",
+        "SIRC Research Tool backend is healthy.",
 
       authentication:
         "enabled",
@@ -2333,7 +2333,7 @@ Include:
 
         const chunkPrompt = `
 
-You are SIRC Research Copilot.
+You are SIRC Research tool.
 
 You are analyzing PART ${i + 1}
 of a research paper.
@@ -2406,7 +2406,7 @@ ${chunks[i]}
 
       const finalPrompt = `
 
-You are SIRC Research Copilot.
+You are SIRC Research tool.
 
 The following are analyses of different
 parts of the SAME research paper.
