@@ -1,5 +1,5 @@
 // =====================================================
-// SIRC RESEARCH TOOL
+// SIRC RESEARCH COPILOT
 // AI ROUTER
 // GROQ → GEMINI FALLBACK
 // PRODUCTION READY
@@ -56,7 +56,7 @@ console.log("==========================================");
 // =====================================================
 
 const SYSTEM_PROMPT = `
-You are SIRC Research Tool,
+You are SIRC Research Copilot,
 an academic research assistant.
 
 Give natural, useful and well-structured answers
