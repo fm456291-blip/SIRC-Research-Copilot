@@ -421,7 +421,7 @@ SIRC has technology-focused roles including:
 - **Mr. Muhammad Usman** — Assistant Manager — Technical & AI
 - **Ms. Fizza Malik** — Executive — Technical & Research Support
 
-SIRC also has the **SIRC Research Copilot**, an AI-powered research assistance initiative designed to support students and researchers.
+SIRC also has the **SIRC Research Tool**, an AI-powered research assistance initiative designed to support students and researchers.
 `;
     }
 
@@ -1184,7 +1184,7 @@ ${staff.description}
           <div>
             <h2>SIRC</h2>
             <span>
-              Research Copilot
+              Research Tool
             </span>
           </div>
 
@@ -1304,7 +1304,7 @@ ${staff.description}
             <span className="status-dot"></span>
 
             <span>
-              SIRC Research Copilot
+            SIRC Research Tool
             </span>
 
           </div>
@@ -2020,7 +2020,7 @@ ${staff.description}
           </div>
 
           <p className="disclaimer">
-            SIRC Research Copilot is designed to support
+            SIRC Research Tool is designed to support
             research and information discovery. Always verify
             important academic information.
           </p>
@@ -2169,7 +2169,7 @@ ${staff.description}
                 </span>
 
                 <h2>
-                  SIRC Research Copilot
+                  SIRC Research Tool
                 </h2>
 
                 <p>
